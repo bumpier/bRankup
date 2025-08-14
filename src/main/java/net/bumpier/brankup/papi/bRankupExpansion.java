@@ -115,7 +115,7 @@ public class bRankupExpansion extends PlaceholderExpansion {
 
         String currencyId = rankupConfig.getString("currency-settings.currency-type");
         IEconomyService economyService = plugin.getEconomyService(currencyId);
-        ProgressionCostService costService = plugin.getRankupCostService();
+        ProgressionCostService costService = plugin.getCostServices().get("rankup");
 
         if (economyService == null || costService == null) return "0";
 
@@ -143,11 +143,11 @@ public class bRankupExpansion extends PlaceholderExpansion {
         long prestigeLevel = 0;
 
         if ("rankup".equals(type)) {
-            costService = plugin.getRankupCostService();
+            costService = plugin.getCostServices().get("rankup");
             currentLevel = data.getRank();
             prestigeLevel = data.getPrestige();
         } else {
-            costService = plugin.getPrestigeCostService();
+            costService = plugin.getCostServices().get("prestige");
             currentLevel = data.getPrestige();
         }
 
@@ -156,6 +156,7 @@ public class bRankupExpansion extends PlaceholderExpansion {
         BigDecimal cost = costService.getCost(currentLevel, prestigeLevel);
         return String.format("%,.0f", cost);
     }
+
 
     private String buildProgressBar(ConfigurationSection config, String percentStr) {
         if (config == null) return "";

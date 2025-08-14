@@ -10,53 +10,23 @@ permissions:
   brankup.admin:
     description: Grants access to all bRankup admin commands.
     default: op
-  brankup.rank.max:
-    description: Allows usage of the /maxrankup command.
-    default: true
-  brankup.prestige.max:
-    description: Allows usage of the /maxprestige command.
-    default: true
-  brankup.rank.auto: # New Permission
-    description: Allows a player to use /autorankup.
-    default: true
-  brankup.prestige.auto: # New Permission
-    description: Allows a player to use /autoprestige.
-    default: true
-            brankup.admin.performance:
-            description: Allows access to performance monitoring commands.
-            default: op
-          brankup.admin.progression:
-            description: Allows access to progression management commands.
-            default: op
+  brankup.admin.performance:
+    description: Allows access to performance monitoring commands.
+    default: op
+  brankup.admin.progression:
+    description: Allows access to progression management commands.
+    default: op
 
 commands:
-  rankup:
-    description: Ranks up to the next level.
-    aliases: [ru] # You can add the config alias here or handle it programmatically
-  prestige:
-    description: Advances you to the next prestige level.
-    aliases: [ p ]
-  maxrankup:
-    description: Buys the maximum ranks you can afford.
-    aliases: [mr, rankupmax]
-  maxprestige:
-    description: Buys the maximum prestige levels you can afford.
-    aliases: [ mp, prestigemax ]
-  autorankup:
-    description: Toggles automatic ranking up.
-    aliases: [ ar ]
-  autoprestige:
-    description: Toggles automatic prestiging.
-    aliases: [ ap ]
   brankupadmin:
     description: Admin commands for the bRankup plugin.
     aliases: [ bra ]
     permission: brankup.admin
-            performance:
-            description: Monitor plugin performance and statistics.
-            aliases: [ perf ]
-            permission: brankup.admin.performance
-          progression:
-            description: Manage progression types and view system information.
-            aliases: [ prog ]
-            permission: brankup.admin.progression
+  performance:
+    description: Monitor plugin performance and statistics.
+    aliases: [ perf ]
+    permission: brankup.admin.performance
+  progression:
+    description: Manage progression types and view system information.
+    aliases: [ prog ]
+    permission: brankup.admin.progression
