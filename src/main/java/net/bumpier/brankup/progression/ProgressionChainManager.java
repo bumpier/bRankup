@@ -32,53 +32,53 @@ public class ProgressionChainManager {
         progressionTypes.clear();
         progressionChains.clear();
         progressionOrder.clear();
-        
+
         ConfigurationSection typesSection = plugin.getConfigManager().getMainConfig()
-            .getConfigurationSection("progression-types");
-        
+                .getConfigurationSection("progression-types");
+
         if (typesSection == null) {
             plugin.getLogger().warning("No progression types defined in config.yml");
             return;
         }
-        
-        // First pass: create all progression types
+
         for (String typeId : typesSection.getKeys(false)) {
             ConfigurationSection typeSection = typesSection.getConfigurationSection(typeId);
             if (typeSection == null) continue;
-            
+
             String configFile = typeSection.getString("config-file");
             String follows = typeSection.getString("follows");
             String displayName = typeSection.getString("display-name", typeId);
             String command = typeSection.getString("command", typeId);
-            
+
             if (configFile == null) {
                 plugin.getLogger().warning("Missing config-file for progression type: " + typeId);
                 continue;
             }
-            
-            // Load the configuration file
-            FileConfiguration config = plugin.getConfigManager().getConfig(configFile);
+
+            // ** THIS IS THE FIX **
+            // We now correctly retrieve the config using its short name (typeId)
+            // instead of the full filename (configFile).
+            FileConfiguration config = plugin.getConfigManager().getConfig(typeId);
+
             if (config == null) {
-                plugin.getLogger().warning("Could not load config file: " + configFile);
+                plugin.getLogger().warning("Could not load config for progression type: " + typeId + " from file " + configFile);
                 continue;
             }
-            
-            ProgressionType progressionType = new ProgressionType(typeId, configFile, follows, 
-                displayName, command, config);
-            
+
+            ProgressionType progressionType = new ProgressionType(typeId, configFile, follows,
+                    displayName, command, config);
+
             progressionTypes.put(typeId, progressionType);
-            plugin.getLogger().info("Loaded progression type: " + typeId + " -> " + displayName);
         }
-        
-        // Second pass: build dependency chains and validate
+
         buildProgressionChains();
         validateProgressionChains();
-        
-        // Third pass: determine progression order
         determineProgressionOrder();
-        
-        plugin.getLogger().info("Loaded " + progressionTypes.size() + " progression types");
-        plugin.getLogger().info("Progression order: " + String.join(" -> ", progressionOrder));
+
+        plugin.getLogger().info("Loaded " + progressionTypes.size() + " progression types.");
+        if (!progressionOrder.isEmpty()) {
+            plugin.getLogger().info("Progression order: " + String.join(" -> ", progressionOrder));
+        }
     }
     
     /**

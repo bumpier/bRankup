@@ -6,6 +6,7 @@ import net.bumpier.brankup.bRankup;
 import net.bumpier.brankup.data.PlayerRankData;
 import net.bumpier.brankup.economy.IEconomyService;
 import net.bumpier.brankup.progression.ProgressionCostService;
+import net.bumpier.brankup.progression.ProgressionType;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.configuration.ConfigurationSection;
@@ -49,78 +50,89 @@ public class bRankupExpansion extends PlaceholderExpansion {
         PlayerRankData data = plugin.getPlayerManagerService().getData(player.getUniqueId());
         if (data == null) return "Loading...";
 
-        ConfigurationSection rankupConfig = plugin.getConfigManager().getMainConfig().getConfigurationSection("rankup-settings");
-        ConfigurationSection prestigeConfig = plugin.getConfigManager().getMainConfig().getConfigurationSection("prestige-settings");
+        // Dynamically parse the placeholder identifier
+        String[] parts = identifier.split("_", 2);
+        if (parts.length < 2) return null;
 
-        switch (identifier) {
-            // Rank Placeholders
-            case "rank_level":
-                return String.valueOf(data.getRank());
-            case "rank_display":
-                return parseDisplay(player, rankupConfig, "rank");
-            case "rank_level_next":
-                long maxRank = rankupConfig != null ? rankupConfig.getLong("limit", 50) : 50;
-                if (data.getRank() >= maxRank) {
-                    String maxDisplay = rankupConfig.getString("display-settings.max-level-display", "&cMax");
-                    return LegacyComponentSerializer.legacyAmpersand().serialize(MiniMessage.miniMessage().deserialize(maxDisplay));
+        String progressionId = parts[0];
+        String requestedInfo = parts[1];
+
+        ProgressionType type = plugin.getProgressionChainManager().getProgressionType(progressionId);
+        if (type == null) {
+            return null; // Not a valid progression type, not our placeholder
+        }
+
+        switch (requestedInfo) {
+            case "level":
+                return String.valueOf(data.getProgressionLevel(progressionId));
+            case "display":
+                return parseDisplay(player, type);
+            case "level_next":
+                long currentLevel = data.getProgressionLevel(progressionId);
+                if (currentLevel >= type.getLimit()) {
+                    return colorize(type.getMaxLevelDisplay());
                 } else {
-                    return String.valueOf(data.getRank() + 1);
+                    return String.valueOf(currentLevel + 1);
                 }
-            case "rank_cost", "rank_cost_formatted":
-                return getCost(data, "rankup");
-            case "rank_percent":
-                return getRankupEconomyPercent(player, data, rankupConfig);
-            case "rank_progress_bar":
-                return buildProgressBar(rankupConfig, getRankupEconomyPercent(player, data, rankupConfig));
-
-            // Prestige Placeholders
-            case "prestige_level":
-                return String.valueOf(data.getPrestige());
-            case "prestige_display":
-                return parseDisplay(player, prestigeConfig, "prestige");
-            case "prestige_level_next":
-                long maxPrestige = prestigeConfig != null ? prestigeConfig.getLong("limit", 50) : 50;
-                if (data.getPrestige() >= maxPrestige) {
-                    String maxDisplay = prestigeConfig.getString("display-settings.max-level-display", "&cMax");
-                    return LegacyComponentSerializer.legacyAmpersand().serialize(MiniMessage.miniMessage().deserialize(maxDisplay));
-                } else {
-                    return String.valueOf(data.getPrestige() + 1);
+            case "next_display":
+                return getNextDisplay(data.getProgressionLevel(progressionId), type);
+            case "cost":
+            case "cost_formatted":
+                return getCost(data, type);
+            case "percent":
+                // Special handling for prestige percent to be rank-based
+                if ("prestige".equals(progressionId)) {
+                    return getPrestigeRankPercent(data);
                 }
-            case "prestige_cost", "prestige_cost_formatted":
-                return getCost(data, "prestige");
-            case "prestige_percent": // Refactored to use rank progress
-                return getRankProgressPercent(data, rankupConfig);
-            case "prestige_progress_bar":
-                return buildProgressBar(prestigeConfig, getRankProgressPercent(data, rankupConfig));
-
+                return getEconomyPercent(player, data, type);
+            case "progress_bar":
+                // Special handling for prestige progress bar
+                if ("prestige".equals(progressionId)) {
+                    return buildProgressBar(type, getPrestigeRankPercent(data));
+                }
+                return buildProgressBar(type, getEconomyPercent(player, data, type));
             default:
                 return null;
         }
     }
 
-    private String getRankProgressPercent(PlayerRankData data, ConfigurationSection rankupConfig) {
-        if (rankupConfig == null) return "0";
-
-        long maxRank = rankupConfig.getLong("limit", 1);
-        if (maxRank <= 0) maxRank = 1;
-
-        double percent = ((double) data.getRank() / maxRank) * 100.0;
-        if (percent > 100.0) percent = 100.0;
-
-        return String.valueOf((int) percent);
+    private String colorize(String message) {
+        return LegacyComponentSerializer.legacyAmpersand().serialize(MiniMessage.miniMessage().deserialize(message));
     }
 
-    private String getRankupEconomyPercent(Player player, PlayerRankData data, ConfigurationSection rankupConfig) {
-        if (rankupConfig == null) return "0";
+    private String parseDisplay(Player player, ProgressionType type) {
+        String format = type.getProgressionDisplay();
+        return colorize(PlaceholderAPI.setPlaceholders(player, format));
+    }
 
-        String currencyId = rankupConfig.getString("currency-settings.currency-type");
-        IEconomyService economyService = plugin.getEconomyService(currencyId);
-        ProgressionCostService costService = plugin.getCostServices().get("rankup");
+    private String getNextDisplay(long currentLevel, ProgressionType type) {
+        if (currentLevel >= type.getLimit()) {
+            return colorize(type.getMaxLevelDisplay());
+        } else {
+            String format = type.getProgressionDisplay();
+            String placeholderToReplace = "%brankup_" + type.getId() + "_level%";
+            format = format.replace(placeholderToReplace, String.valueOf(currentLevel + 1));
+            return colorize(format);
+        }
+    }
 
+    private String getCost(PlayerRankData data, ProgressionType type) {
+        ProgressionCostService costService = plugin.getCostServices().get(type.getId());
+        if (costService == null) return "N/A";
+
+        long prestigeLevel = data.getProgressionLevel("prestige");
+        BigDecimal cost = costService.getCost(data.getProgressionLevel(type.getId()), prestigeLevel);
+        return String.format("%,.0f", cost);
+    }
+
+    private String getEconomyPercent(Player player, PlayerRankData data, ProgressionType type) {
+        IEconomyService economyService = plugin.getEconomyService(type.getCurrencyType());
+        ProgressionCostService costService = plugin.getCostServices().get(type.getId());
         if (economyService == null || costService == null) return "0";
 
         BigDecimal balance = economyService.getBalance(player).join();
-        BigDecimal cost = costService.getCost(data.getRank(), data.getPrestige());
+        long prestigeLevel = data.getProgressionLevel("prestige");
+        BigDecimal cost = costService.getCost(data.getProgressionLevel(type.getId()), prestigeLevel);
 
         if (cost.compareTo(BigDecimal.ZERO) <= 0) return "100";
         if (balance.compareTo(cost) >= 0) return "100";
@@ -129,57 +141,33 @@ public class bRankupExpansion extends PlaceholderExpansion {
         return String.valueOf(percent.intValue());
     }
 
-    // ... (parseDisplay, getCost, and buildProgressBar methods are unchanged, I will include them for completeness)
-    private String parseDisplay(Player player, ConfigurationSection config, String type) {
-        if (config == null) return "";
-        String format = config.getString("display-settings." + type + "-display", "&cInvalid Format");
-        String formattedString = PlaceholderAPI.setPlaceholders(player, format);
-        return LegacyComponentSerializer.legacyAmpersand().serialize(MiniMessage.miniMessage().deserialize(formattedString));
+    private String getPrestigeRankPercent(PlayerRankData data) {
+        ProgressionType rankupType = plugin.getProgressionChainManager().getProgressionType("rankup");
+        if (rankupType == null) return "0";
+        long maxRank = rankupType.getLimit();
+        if (maxRank <= 0) maxRank = 1;
+        double percent = ((double) data.getProgressionLevel("rankup") / maxRank) * 100.0;
+        if (percent > 100.0) percent = 100.0;
+        return String.valueOf((int) percent);
     }
 
-    private String getCost(PlayerRankData data, String type) {
-        ProgressionCostService costService;
-        long currentLevel;
-        long prestigeLevel = 0;
-
-        if ("rankup".equals(type)) {
-            costService = plugin.getCostServices().get("rankup");
-            currentLevel = data.getRank();
-            prestigeLevel = data.getPrestige();
-        } else {
-            costService = plugin.getCostServices().get("prestige");
-            currentLevel = data.getPrestige();
-        }
-
-        if (costService == null) return "N/A";
-
-        BigDecimal cost = costService.getCost(currentLevel, prestigeLevel);
-        return String.format("%,.0f", cost);
-    }
-
-
-    private String buildProgressBar(ConfigurationSection config, String percentStr) {
-        if (config == null) return "";
-        ConfigurationSection barConfig = config.getConfigurationSection("display-settings.progress-bar");
+    private String buildProgressBar(ProgressionType type, String percentStr) {
+        if (type == null) return "";
+        ConfigurationSection barConfig = type.getConfig().getConfigurationSection("display-settings.progress-bar");
         if (barConfig == null || !barConfig.getBoolean("enabled", true)) {
             return "";
         }
-
         String barChar = barConfig.getString("character", "■");
         int totalChars = barConfig.getInt("amount", 20);
         String colorAchieved = barConfig.getString("color-achieved", "&a");
         String colorCurrent = barConfig.getString("color-current", "&e");
         String colorNeeded = barConfig.getString("color-needed", "&7");
-
         double percent = 0;
         try {
             percent = Double.parseDouble(percentStr);
         } catch (NumberFormatException ignored) {}
-
         int achievedChars = (int) Math.floor((percent / 100.0) * totalChars);
-
         StringBuilder sb = new StringBuilder();
-
         for (int i = 0; i < totalChars; i++) {
             if (i < achievedChars) {
                 sb.append(colorAchieved).append(barChar);
@@ -189,7 +177,6 @@ public class bRankupExpansion extends PlaceholderExpansion {
                 sb.append(colorNeeded).append(barChar);
             }
         }
-
-        return LegacyComponentSerializer.legacyAmpersand().serialize(MiniMessage.miniMessage().deserialize(sb.toString()));
+        return colorize(sb.toString());
     }
 }

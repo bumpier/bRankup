@@ -1,5 +1,6 @@
 package net.bumpier.brankup.data;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -42,47 +43,39 @@ public class PlayerManagerService implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
-        
-        // OPTIMIZATION: Load data asynchronously and cache with timestamp
-        CompletableFuture.runAsync(() -> {
-            try {
-                PlayerRankData data = databaseService.loadPlayerData(uuid).join();
-                if (data != null) {
-                    playerDataCache.put(uuid, data);
-                    cacheTimestamps.put(uuid, System.currentTimeMillis());
-                    plugin.getLogger().info("Successfully loaded and cached data for " + player.getName());
-                } else {
-                    // OPTIMIZATION: Create default data if none exists
-                    data = PlayerRankData.newPlayer(uuid);
-                    playerDataCache.put(uuid, data);
-                    cacheTimestamps.put(uuid, System.currentTimeMillis());
-                    plugin.getLogger().info("Created default data for " + player.getName());
-                }
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to load data for " + player.getName(), e);
-                // OPTIMIZATION: Create default data on failure to prevent null pointer exceptions
-                PlayerRankData defaultData = PlayerRankData.newPlayer(uuid);
-                playerDataCache.put(uuid, defaultData);
+
+        // Step 1: Immediately create and cache a default data object.
+        // This prevents "data loading" messages and ensures a non-null value is always available for online players.
+        playerDataCache.put(uuid, PlayerRankData.newPlayer(uuid));
+
+        // Step 2: Asynchronously load the real data from the database.
+        databaseService.loadPlayerData(uuid).thenAccept(loadedData -> {
+            if (loadedData != null) {
+                // Step 3: Once loaded, replace the default object with the real data.
+                playerDataCache.put(uuid, loadedData);
                 cacheTimestamps.put(uuid, System.currentTimeMillis());
+                plugin.getLogger().info("Successfully loaded data for " + player.getName());
+            } else {
+                plugin.getLogger().warning("Loaded data was null for " + player.getName() + ", they will use default data.");
             }
+        }).exceptionally(ex -> {
+            plugin.getLogger().log(Level.SEVERE, "Failed to load data for " + player.getName(), ex);
+            // The player will continue to use the default data object, preventing errors.
+            return null;
         });
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
+        // Remove from cache first to prevent modifications during the save process
         PlayerRankData data = playerDataCache.remove(uuid);
         cacheTimestamps.remove(uuid);
-        
+
         if (data != null) {
-            // OPTIMIZATION: Save data asynchronously to prevent blocking
-            CompletableFuture.runAsync(() -> {
-                try {
-                    databaseService.savePlayerData(data).join();
-                    plugin.getLogger().info("Successfully saved data for " + event.getPlayer().getName());
-                } catch (Exception e) {
-                    plugin.getLogger().log(Level.SEVERE, "Failed to save data for " + event.getPlayer().getName(), e);
-                }
+            databaseService.savePlayerData(data).exceptionally(ex -> {
+                plugin.getLogger().log(Level.SEVERE, "Failed to save data for " + event.getPlayer().getName(), ex);
+                return null;
             });
         }
     }
@@ -93,20 +86,12 @@ public class PlayerManagerService implements Listener {
      * @param uuid The player's UUID.
      * @return The PlayerRankData, or null if not cached or expired.
      */
+    /**
+     * Retrieves the cached rank data for a player.
+     * This will no longer return null for an online player after the onPlayerJoin event.
+     */
     public PlayerRankData getData(UUID uuid) {
-        PlayerRankData data = playerDataCache.get(uuid);
-        if (data == null) {
-            return null;
-        }
-        
-        // OPTIMIZATION: Check if cache entry is stale
-        Long timestamp = cacheTimestamps.get(uuid);
-        if (timestamp != null && System.currentTimeMillis() - timestamp > CACHE_TTL_MS) {
-            // OPTIMIZATION: Refresh stale data asynchronously
-            CompletableFuture.runAsync(() -> refreshPlayerData(uuid));
-        }
-        
-        return data;
+        return playerDataCache.get(uuid);
     }
     
     /**
@@ -173,27 +158,18 @@ public class PlayerManagerService implements Listener {
      * OPTIMIZATION: Perform periodic cache cleanup to prevent memory leaks
      */
     private void performCacheCleanup() {
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastCleanupTime < CLEANUP_INTERVAL_MS) {
-            return;
-        }
-        
-        lastCleanupTime = currentTime;
-        long cleanupThreshold = currentTime - CACHE_TTL_MS;
-        
-        // OPTIMIZATION: Remove expired cache entries
+        long cleanupThreshold = System.currentTimeMillis() - CACHE_TTL_MS;
+
         cacheTimestamps.entrySet().removeIf(entry -> {
             if (entry.getValue() < cleanupThreshold) {
-                playerDataCache.remove(entry.getKey());
-                return true;
+                // Only remove if the player is offline
+                if (Bukkit.getPlayer(entry.getKey()) == null) {
+                    playerDataCache.remove(entry.getKey());
+                    return true;
+                }
             }
             return false;
         });
-        
-        // OPTIMIZATION: Log cleanup statistics
-        if (plugin.getLogger().isLoggable(Level.FINE)) {
-            plugin.getLogger().fine("Cache cleanup completed. Active entries: " + playerDataCache.size());
-        }
     }
     
     /**

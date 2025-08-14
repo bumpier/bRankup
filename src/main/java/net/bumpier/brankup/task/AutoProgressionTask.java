@@ -22,9 +22,12 @@ public class AutoProgressionTask extends BukkitRunnable {
     private final Map<UUID, Long> playerCooldowns = new ConcurrentHashMap<>();
     private final Map<UUID, Map<String, Integer>> progressionCounts = new ConcurrentHashMap<>();
     private final Map<UUID, Long> nextSummaryTimes = new ConcurrentHashMap<>();
+
     private final boolean summaryEnabled;
     private final long summaryIntervalMillis;
-    private final List<String> summaryMessage;
+    private final String summaryHeader;
+    private final String summaryPerTypeFormat;
+    private final String summaryFooter;
 
     public AutoProgressionTask(bRankup plugin) {
         this.plugin = plugin;
@@ -32,11 +35,15 @@ public class AutoProgressionTask extends BukkitRunnable {
         if (summaryConfig != null) {
             this.summaryEnabled = summaryConfig.getBoolean("enabled", true);
             this.summaryIntervalMillis = summaryConfig.getLong("interval-seconds", 120) * 1000;
-            this.summaryMessage = summaryConfig.getStringList("message");
+            this.summaryHeader = summaryConfig.getString("header", "");
+            this.summaryPerTypeFormat = summaryConfig.getString("per-type-format", "");
+            this.summaryFooter = summaryConfig.getString("footer", "");
         } else {
             this.summaryEnabled = false;
             this.summaryIntervalMillis = 120_000;
-            this.summaryMessage = List.of();
+            this.summaryHeader = "";
+            this.summaryPerTypeFormat = "";
+            this.summaryFooter = "";
         }
     }
 
@@ -45,26 +52,59 @@ public class AutoProgressionTask extends BukkitRunnable {
         long currentTime = System.currentTimeMillis();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
-            if (currentTime < playerCooldowns.getOrDefault(player.getUniqueId(), 0L)) {
+            UUID uuid = player.getUniqueId();
+
+            if (summaryEnabled && currentTime > nextSummaryTimes.getOrDefault(uuid, 0L)) {
+                sendSummary(player);
+                nextSummaryTimes.put(uuid, currentTime + summaryIntervalMillis);
+            }
+
+            if (currentTime < playerCooldowns.getOrDefault(uuid, 0L)) {
                 continue;
             }
 
-            if (summaryEnabled && currentTime > nextSummaryTimes.getOrDefault(player.getUniqueId(), 0L)) {
-                sendSummary(player);
-                nextSummaryTimes.put(player.getUniqueId(), currentTime + summaryIntervalMillis);
-            }
-
-            PlayerRankData data = plugin.getPlayerManagerService().getData(player.getUniqueId());
+            PlayerRankData data = plugin.getPlayerManagerService().getData(uuid);
             if (data == null) continue;
 
-            // Generic loop through all progression types
-            for (ProgressionType type : plugin.getProgressionChainManager().getProgressionOrder()) {
-                if (data.isAutoProgressionEnabled(type.getId())) {
-                    processAutoProgression(player, data, type);
-                    // Process one auto-progression per cycle to respect priority
-                    break;
+            for (String typeId : plugin.getProgressionChainManager().getProgressionOrder()) {
+                if (data.isAutoProgressionEnabled(typeId)) {
+                    ProgressionType type = plugin.getProgressionChainManager().getProgressionType(typeId);
+                    if (type != null) {
+                        processAutoProgression(player, data, type);
+                        break;
+                    }
                 }
             }
+        }
+    }
+
+    private void sendSummary(Player player) {
+        Map<String, Integer> counts = progressionCounts.remove(player.getUniqueId());
+        if (counts == null || counts.isEmpty()) return;
+
+        long intervalMinutes = summaryIntervalMillis / 60_000;
+        String intervalString = intervalMinutes + (intervalMinutes == 1 ? " minute" : " minutes");
+
+        if (!summaryHeader.isBlank()) {
+            plugin.getMessageService().sendParsedMessage(player, summaryHeader, "interval", intervalString);
+        }
+
+        if (!summaryPerTypeFormat.isBlank()) {
+            for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+                String typeId = entry.getKey();
+                Integer count = entry.getValue();
+                ProgressionType type = plugin.getProgressionChainManager().getProgressionType(typeId);
+                if (type != null && count > 0) {
+                    plugin.getMessageService().sendParsedMessage(player, summaryPerTypeFormat,
+                            "type_display_name", type.getDisplayName(),
+                            "type_count", String.valueOf(count)
+                    );
+                }
+            }
+        }
+
+        if (!summaryFooter.isBlank()) {
+            plugin.getMessageService().sendParsedMessage(player, summaryFooter);
         }
     }
 
@@ -101,19 +141,6 @@ public class AutoProgressionTask extends BukkitRunnable {
                 });
             }
         });
-    }
-
-    private void sendSummary(Player player) {
-        Map<String, Integer> counts = progressionCounts.remove(player.getUniqueId());
-        if (counts == null || counts.isEmpty()) return;
-
-        long intervalMinutes = summaryIntervalMillis / 60_000;
-        String intervalString = intervalMinutes + (intervalMinutes == 1 ? " minute" : " minutes");
-
-        for (String line : summaryMessage) {
-            // A more dynamic summary message is needed here, this is a basic implementation
-            plugin.getMessageService().sendParsedMessage(player, line, "interval", intervalString);
-        }
     }
 
     private void handleResets(Player player, PlayerRankData data, ProgressionType type) {

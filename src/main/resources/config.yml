@@ -68,13 +68,14 @@ auto-progression:
 
 auto-progression-summary:
   enabled: true
-  interval-seconds: 120 # (2 minutes)
-  message:
-    - ""
-    - "<gold><b>Auto-Progression Summary</b> (<interval>)"
-    - "[if_rankups]<gray>» You have ranked up <aqua><count_rankups></aqua> times."
-    - "[if_prestiges]<gray>» You have prestiged <gold><count_prestiges></gold> times."
-    - ""
+  interval-seconds: 120
+  # The header of the summary message.
+  header: "<gold><b>Auto-Progression Summary</b> (<interval>)"
+  # This format will be used for EACH progression type the player has advanced in.
+  # Available placeholders: <type_display_name>, <type_count>
+  per-type-format: "<gray>» You have advanced <aqua><type_display_name></aqua> <aqua><type_count></aqua> times."
+  # The footer of the summary message. Can be left empty "".
+  footer: ""
 
 # =================================================================
 # Progression Types Configuration
