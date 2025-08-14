@@ -1,0 +1,56 @@
+# =================================================================
+# bRankup Messages using MiniMessage
+#
+# Documentation: https://docs.adventure.kyori.net/minimessage/
+# =================================================================
+
+# --- Admin Messages ---
+admin-command-usage: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <yellow>Usage: /bra reload | rankup <set|add|remove> <player> <amount>"
+admin-reload-success: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>Configuration files reloaded successfully."
+admin-rank-set: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You set <player>'s rank to <aqua><amount></aqua>."
+admin-rank-add: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You added <aqua><amount></aqua> ranks to <player>."
+admin-rank-remove: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You removed <aqua><amount></aqua> ranks from <player>."
+admin-rank-notify-set: "<gold><b>Rank Update</b></gold> <dark_gray>»</dark_gray> <gray>Your rank has been set to <aqua><amount></aqua> by an admin."
+admin-rank-notify-change: "<gold><b>Rank Update</b></gold> <dark_gray>»</dark_gray> <gray>Your rank has been changed to <aqua><new_rank></aqua> by an admin."
+admin-prestige-set: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You set <player>'s prestige to <gold><amount></gold>."
+admin-prestige-add: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You added <gold><amount></gold> prestiges to <player>."
+admin-prestige-remove: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You removed <gold><amount></gold> prestiges from <player>."
+admin-prestige-notify-set: "<gold><b>Prestige Update</b></gold> <dark_gray>»</dark_gray> <gray>Your prestige has been set to <gold><amount></gold> by an admin."
+admin-prestige-notify-change: "<gold><b>Prestige Update</b></gold> <dark_gray>»</dark_gray> <gray>Your prestige has been changed to <gold><new_prestige></gold> by an admin."
+
+
+error-player-not-found: "<red>Error: The player '<player>' has never played on this server."
+error-invalid-number: "<red>Error: '<amount>' is not a valid positive number."
+error-rank-below-zero: "<red>Error: This action would result in a rank below zero."
+error-rank-above-max: "<red>Error: This action would result in a rank above the maximum (<max_rank>)."
+
+
+# --- System Messages ---
+error-players-only: "<red>This command can only be run by a player."
+error-data-not-loaded: "<red>Your data is still loading, please try again in a moment."
+error-economy-withdraw-fail: "<red>An unexpected error occurred with the economy. Please contact an admin."
+error-economy-not-found: "<red>The required currency for <yellow><currency></yellow> is not available. Please contact an admin."
+error-no-permission: "<red>You do not have permission to use this command."
+
+# --- Rankup Messages ---
+rankup-success: "<green><b>Success!</b> <gray>You have ranked up to Rank <aqua><new_rank></aqua>!"
+rankup-fail-money: "<red><b>Failed!</b> <gray>You need <aqua><cost></aqua> <gray>to rank up."
+rankup-fail-max-rank: "<red><b>Maxed!</b> <gray>You are already at the maximum rank."
+
+# --- Prestige Messages ---
+prestige-success: "<green><b>Success!</b> <gray>You have advanced to Prestige <gold><new_prestige></gold>!"
+prestige-fail-rank: "<red><b>Failed!</b> <gray>You must reach Rank <aqua><max_rank></aqua> before you can prestige."
+prestige-fail-max-prestige: "<red><b>Maxed!</b> <gray>You are already at the maximum prestige level."
+prestige-fail-money: "<red><b>Failed!</b> <gray>You need <gold><cost></gold> <gray>to prestige."
+maxprestige-success: "<green><b>Success!</b> <gray>You purchased <gold><prestiges_purchased></gold> prestiges for <aqua><total_cost></aqua> and are now Prestige <gold><new_prestige></gold>!"
+maxprestige-fail-cant-afford-next: "<red><b>Failed!</b> <gray>You cannot afford to prestige again."
+
+# --- Max Rankup Messages ---
+maxrankup-success: "<green><b>Success!</b> <gray>You purchased <aqua><ranks_purchased></aqua> ranks for <gold><total_cost></gold> and are now Rank <aqua><new_rank></aqua>!"
+maxrankup-fail-cant-afford-next:
+
+# --- Auto Progression Messages ---
+auto-rankup-enabled: "<green>Auto-Rankup has been <bold>enabled</bold>."
+auto-rankup-disabled: "<red>Auto-Rankup has been <bold>disabled</bold>."
+auto-prestige-enabled: "<green>Auto-Prestige has been <bold>enabled</bold>."
+auto-prestige-disabled: "<red>Auto-Prestige has been <bold>disabled</bold>."

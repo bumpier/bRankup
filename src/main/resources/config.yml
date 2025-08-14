@@ -1,0 +1,109 @@
+# =================================================================
+# bRankup Configuration
+#
+# For support, visit bumpier.dev
+# =================================================================
+
+# Global database settings.
+# Type can be 'SQLite' or 'MySQL'.
+database:
+  type: SQLite
+  mysql:
+    host: "localhost"
+    port: 3306
+    database: "brankup"
+    username: "user"
+    password: "password"
+    table-prefix: "brankup_"
+
+# Currency definitions
+currencies:
+  gold: "Gold"
+  pearls: "Pearls"
+
+# OPTIMIZATION: Performance settings for fine-tuning
+performance:
+  # Auto-progression task frequency (in ticks, 20 ticks = 1 second)
+  # Higher values = less frequent checks = better performance
+  # Lower values = more responsive = higher CPU usage
+  auto-progression-frequency: 100  # Check every 5 seconds (was 20 ticks = every second)
+  
+  # Cache settings for better performance
+  cache:
+    # How long to keep player data in memory (in minutes)
+    player-data-ttl: 30
+    
+    # How often to clean up expired cache entries (in minutes)
+    cleanup-interval: 5
+    
+    # Maximum number of cached players (0 = unlimited)
+    max-cached-players: 0
+  
+  # Cost calculation optimization
+  cost-calculation:
+    # Enable caching for expensive cost calculations
+    enable-caching: true
+    
+    # Maximum cache size for cost calculations (0 = unlimited)
+    max-cache-size: 1000
+  
+  # Reward dispatching optimization
+  rewards:
+    # Number of commands to batch together
+    batch-size: 5
+    
+    # Delay between command batches (in ticks)
+    batch-delay: 2
+
+# Global auto-progression settings
+auto-progression:
+  allow-simultaneous: true # Allow auto-rankup and auto-prestige to run at the same time
+  simultaneous-settings:
+    enabled: true # Enable special handling when both are active
+    priority: "rankup-first" # Which to process first: "prestige-first", "rankup-first", or "parallel"
+    # Note: When both are enabled, they will respect their individual delay settings
+  auto-disable:
+    enabled: true # Automatically disable auto-progression when max level is reached
+    disable-other: true # When one reaches max, disable the other type as well
+
+auto-progression-summary:
+  enabled: true
+  interval-seconds: 120 # (2 minutes)
+  message:
+    - ""
+    - "<gold><b>Auto-Progression Summary</b> (<interval>)"
+    - "[if_rankups]<gray>» You have ranked up <aqua><count_rankups></aqua> times."
+    - "[if_prestiges]<gray>» You have prestiged <gold><count_prestiges></gold> times."
+    - ""
+
+# =================================================================
+# Progression Types Configuration
+# =================================================================
+# 
+# Define your progression ladder here. Each progression type can follow another,
+# creating chains like: rankup -> prestige -> rebirth -> ascension
+# 
+# To add a new progression type:
+# 1. Create a new YAML file (e.g., rebirth.yml)
+# 2. Add an entry below with the progression type details
+# 3. Restart the plugin
+# 
+progression-types:
+  rankup:
+    config-file: "rankup.yml"
+    follows: null  # Base progression type (no dependencies)
+    display-name: "Rankup"
+    command: "rankup"
+    
+  prestige:
+    config-file: "prestige.yml"
+    follows: "rankup"  # Requires max rankup level
+    display-name: "Prestige"
+    command: "prestige"
+    
+  # Example of how to add rebirth:
+  # rebirth:
+  #   config-file: "rebirth.yml"
+  #   follows: "prestige"  # Requires max prestige level
+  #   display-name: "Rebirth"
+  #   command: "rebirth"

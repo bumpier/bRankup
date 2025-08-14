@@ -1,0 +1,93 @@
+# =================================================================
+# bRankup - Rankup Configuration
+# =================================================================
+
+# Enable/disable the rankup system
+enabled: true
+
+# Command alias for rankup
+command-alias: "rankup"
+
+# Maximum rank level
+limit: 50
+
+# Feature settings
+features:
+  auto-rankup:
+    enabled: true
+    permission: "brankup.rank.auto"
+    delay: 10 # In Ticks
+  max-rankup:
+    enabled: true
+    permission: "brankup.rank.max"
+
+# Currency and cost settings
+currency-settings:
+  currency-type: gold # Can be 'money' (Vault) or a custom ID
+  calculation-mode: EXPONENTIAL # EXPONENTIAL / LINEAR
+  
+  exponential:
+    base-cost: 1000
+    cost-multiplier: 1.15
+  
+  linear:
+    base-cost: 1000
+    cost-per-level: 1000
+
+# Prestige cost scaling for rankups
+prestige-cost-scaling:
+  enabled: true
+  # Mode can be:
+  # MULTIPLIER: Increases cost by a percentage per prestige. (e.g., cost *= 1 + (prestige * value))
+  # ADDITIVE: Increases cost by a flat amount multiplied by prestige. (e.g., cost += (prestige * value))
+  mode: "MULTIPLIER"
+  # The value to apply per prestige level.
+  # For MULTIPLIER, 0.25 means a 25% increase per prestige.
+  # For ADDITIVE, 50000 means a flat 50,000 is added to the cost per prestige.
+  value: 0.25
+
+# Display settings
+display-settings:
+  rank-display: "&8[&b%brankup_rank_level%&8]"
+  max-level-display: "&c&lMax Level" # Used for the next_rank placeholder only
+  
+  progress-bar:
+    enabled: true
+    character: "■"
+    amount: 10
+    color-achieved: "&a"
+    color-current: "&e"
+    color-needed: "&7"
+    
+  rankup-title:
+    enabled: true
+    title: "<gradient:#FAD961:#F76B1C><b>LEVEL UP!</b></gradient>"
+    subtitle: "<gray>You are now Rank <aqua><new_rank></aqua>!"
+    fade-in: 10
+    stay: 40
+    fade-out: 10
+
+# Sound settings
+sounds:
+  enabled: true
+  on-rankup:
+    sound-id: "ENTITY_PLAYER_LEVELUP"
+    volume: 1.0
+    pitch: 1.0
+  on-fail:
+    sound-id: "ENTITY_VILLAGER_NO"
+    volume: 1.0
+    pitch: 1.0
+
+# Reward settings
+rewards:
+  every-level:
+    - "eco give %brankup_player_name% 1000"
+  
+  first-time-rewards:
+    "50":
+      - "broadcast &e%brankup_player_name% &fhas reached the max level for the first time!"
+  
+  interval-rewards:
+    "every-10":
+      - "crate give %brankup_player_name% RankKey 1" 

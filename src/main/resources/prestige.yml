@@ -1,0 +1,91 @@
+# =================================================================
+# bRankup - Prestige Configuration
+# =================================================================
+
+# Enable/disable the prestige system
+enabled: true
+
+# Command alias for prestige
+command-alias: "prestige"
+
+# Maximum prestige level
+limit: 50
+
+# Requirements for prestiging
+requirements:
+  requires-max-level: true
+
+# Reset settings when prestiging
+reset-settings:
+  reset-rankup: true
+  reset-currencies:
+    gold: true
+
+# Feature settings
+features:
+  auto-prestige:
+    enabled: true
+    permission: "brankup.prestige.auto"
+    delay: 10 # In Ticks
+  max-prestige:
+    enabled: true
+    permission: "brankup.prestige.max"
+
+# Currency and cost settings
+currency-settings:
+  currency-type: pearls
+  calculation-mode: EXPONENTIAL # EXPONENTIAL / LINEAR
+  
+  exponential:
+    base-cost: 1000
+    cost-multiplier: 1.15
+  
+  linear:
+    base-cost: 1000
+    cost-per-level: 1000
+
+# Display settings
+display-settings:
+  prestige-display: "&8[&bLevel %brankup_prestige_level%&8]"
+  max-level-display: "&c&lMax Prestige" # Used for the next_rank placeholder only
+  
+  progress-bar:
+    enabled: true
+    character: "■"
+    amount: 10
+    color-achieved: "&a"
+    color-current: "&e"
+    color-needed: "&7"
+
+  prestige-title:
+    enabled: true
+    title: "&6&lLEVEL UP!"
+    subtitle: "&7You are now Level &b%brankup_prestige_level_next%&7!"
+    fade-in: 10
+    stay: 40
+    fade-out: 10
+
+# Sound settings
+sounds:
+  enabled: true
+  on-prestige:
+    sound-id: "ENTITY_PLAYER_LEVELUP"
+    volume: 1.0
+    pitch: 1.0
+  on-fail:
+    sound-id: "ENTITY_VILLAGER_NO"
+    volume: 1.0
+    pitch: 1.0
+
+# Reward settings
+rewards:
+  every-prestige:
+    - "eco give %brankup_player_name% 1000"
+  
+  first-time-rewards:
+    "50":
+      - "broadcast &e%brankup_player_name% &fhas reached the max level for the first time!"
+  
+  interval-rewards:
+    "every-10":
+      - "crate give %brankup_player_name% RankKey 1" 
