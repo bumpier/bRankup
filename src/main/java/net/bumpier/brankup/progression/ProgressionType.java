@@ -20,6 +20,7 @@ public class ProgressionType {
     private final String displayName;
     private final String command;
     private final FileConfiguration config;
+    private final String commandAlias;
     
     // Core settings
     private final boolean enabled;
@@ -67,6 +68,7 @@ public class ProgressionType {
         // Load all configuration values
         this.enabled = config.getBoolean("enabled", true);
         this.limit = config.getLong("limit", 50);
+        this.commandAlias = config.getString("command-alias");
         
         // Requirements
         ConfigurationSection requirementsSection = config.getConfigurationSection("requirements");
@@ -192,6 +194,7 @@ public class ProgressionType {
     public List<String> getEveryProgressionRewards() { return everyProgressionRewards; }
     public Map<String, List<String>> getFirstTimeRewards() { return firstTimeRewards; }
     public Map<String, List<String>> getIntervalRewards() { return intervalRewards; }
+    public String getCommandAlias() {return commandAlias;}
     
     /**
      * Check if this progression type can be unlocked by a player

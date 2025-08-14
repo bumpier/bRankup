@@ -1,7 +1,8 @@
-package net.bumpier.brankup.command;
+package net.bumpier.brankup.command.generic;
 
 import net.bumpier.brankup.bRankup;
 import net.bumpier.brankup.data.PlayerRankData;
+import net.bumpier.brankup.progression.ProgressionType;
 import net.bumpier.brankup.util.AdventureMessageService;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -9,16 +10,16 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
-public class AutoRankupCommand implements CommandExecutor {
+public class GenericAutoToggleCommand implements CommandExecutor {
 
     private final bRankup plugin;
     private final AdventureMessageService messageService;
-    private final String permission;
+    private final ProgressionType progressionType;
 
-    public AutoRankupCommand(bRankup plugin) {
+    public GenericAutoToggleCommand(bRankup plugin, ProgressionType progressionType) {
         this.plugin = plugin;
         this.messageService = plugin.getMessageService();
-        this.permission = plugin.getConfigManager().getMainConfig().getString("rankup-settings.features.auto-rankup.permission", "brankup.rank.auto");
+        this.progressionType = progressionType;
     }
 
     @Override
@@ -27,7 +28,7 @@ public class AutoRankupCommand implements CommandExecutor {
             messageService.sendMessage(sender, "error-players-only");
             return true;
         }
-        if (!player.hasPermission(permission)) {
+        if (!player.hasPermission(progressionType.getAutoProgressionPermission())) {
             messageService.sendMessage(player, "error-no-permission");
             return true;
         }
@@ -38,13 +39,14 @@ public class AutoRankupCommand implements CommandExecutor {
             return true;
         }
 
-        boolean newState = !data.isAutoRankupEnabled();
-        data.setAutoRankupEnabled(newState);
+        boolean newState = !data.isAutoProgressionEnabled(progressionType.getId());
+        data.setAutoProgressionEnabled(progressionType.getId(), newState);
 
+        String displayName = progressionType.getDisplayName();
         if (newState) {
-            messageService.sendMessage(player, "auto-rankup-enabled");
+            messageService.sendMessage(player, "auto-progression-enabled", "type", displayName);
         } else {
-            messageService.sendMessage(player, "auto-rankup-disabled");
+            messageService.sendMessage(player, "auto-progression-disabled", "type", displayName);
         }
         return true;
     }
