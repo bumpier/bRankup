@@ -15,45 +15,18 @@ database:
     username: "user"
     password: "password"
     table-prefix: "brankup_"
+    pool:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
 
 # Currency definitions
 currencies:
   gold: "Gold"
   pearls: "Pearls"
 
-# OPTIMIZATION: Performance settings for fine-tuning
-performance:
-  # Auto-progression task frequency (in ticks, 20 ticks = 1 second)
-  # Higher values = less frequent checks = better performance
-  # Lower values = more responsive = higher CPU usage
-  auto-progression-frequency: 100  # Check every 5 seconds (was 20 ticks = every second)
-  
-  # Cache settings for better performance
-  cache:
-    # How long to keep player data in memory (in minutes)
-    player-data-ttl: 30
-    
-    # How often to clean up expired cache entries (in minutes)
-    cleanup-interval: 5
-    
-    # Maximum number of cached players (0 = unlimited)
-    max-cached-players: 0
-  
-  # Cost calculation optimization
-  cost-calculation:
-    # Enable caching for expensive cost calculations
-    enable-caching: true
-    
-    # Maximum cache size for cost calculations (0 = unlimited)
-    max-cache-size: 1000
-  
-  # Reward dispatching optimization
-  rewards:
-    # Number of commands to batch together
-    batch-size: 5
-    
-    # Delay between command batches (in ticks)
-    batch-delay: 2
 
 # Global auto-progression settings
 auto-progression:
@@ -68,14 +41,14 @@ auto-progression:
 
 auto-progression-summary:
   enabled: true
-  interval-seconds: 120
-  # The header of the summary message.
-  header: "<gold><b>Auto-Progression Summary</b> (<interval>)"
-  # This format will be used for EACH progression type the player has advanced in.
-  # Available placeholders: <type_display_name>, <type_count>
-  per-type-format: "<gray>» You have advanced <aqua><type_display_name></aqua> <aqua><type_count></aqua> times."
-  # The footer of the summary message. Can be left empty "".
-  footer: ""
+  interval-seconds: 120 # (2 minutes)
+  message:
+    - ""
+    - "<gold><b>Auto-Progression Summary</b> (<interval>)"
+    - "[if_rankup]<gray>» You have ranked up <aqua><count_rankup></aqua> times."
+    - "[if_prestige]<gray>» You have prestiged <gold><count_prestige></gold> times."
+    - "[if_rebirth]<gray>» You have rebirthed <dark_purple><count_rebirth></dark_purple> times."
+    - ""
 
 # =================================================================
 # Progression Types Configuration
@@ -108,3 +81,44 @@ progression-types:
   #   follows: "prestige"  # Requires max prestige level
   #   display-name: "Rebirth"
   #   command: "rebirth"
+
+performance:
+  # Auto-progression task frequency (in ticks, 20 ticks = 1 second)
+  # Higher values = less frequent checks = better performance
+  # Lower values = more responsive = higher CPU usage
+  auto-progression-frequency: 100  # Check every 5 seconds (was 20 ticks = every second)
+
+  # Cache settings for better performance
+  cache:
+    # How long to keep player data in memory (in minutes)
+    player-data-ttl: 30
+
+    # How often to clean up expired cache entries (in minutes)
+    cleanup-interval: 5
+
+    # Maximum number of cached players (0 = unlimited)
+    max-cached-players: 0
+
+  # Cost calculation optimization
+  cost-calculation:
+    # Enable caching for expensive cost calculations
+    enable-caching: true
+
+    # Maximum cache size for cost calculations (0 = unlimited)
+    max-cache-size: 1000
+
+  # Reward dispatching optimization
+  rewards:
+    # Number of commands to batch together
+    batch-size: 5
+
+    # Delay between command batches (in ticks)
+    batch-delay: 2
+
+# =================================================================
+# Debugging Settings
+# =================================================================
+debug:
+  # Enable detailed logging for command execution.
+  # This will print a lot of information to the console and is useful for diagnosing issues.
+  command-execution: false

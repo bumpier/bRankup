@@ -13,12 +13,6 @@ import java.util.logging.Level;
 public class ConfigManager {
 
     private final bRankup plugin;
-    private FileConfiguration mainConfig;
-    private FileConfiguration messagesConfig;
-    private FileConfiguration rankupConfig;
-    private FileConfiguration prestigeConfig;
-    
-    // Cache for all configuration files
     private final Map<String, FileConfiguration> configCache = new HashMap<>();
 
     public ConfigManager(bRankup plugin) {
@@ -26,149 +20,103 @@ public class ConfigManager {
     }
 
     /**
-     * Loads or reloads all configuration files from disk.
+     * Loads or reloads all essential configuration files and clears the cache.
+     * Dynamic configs like progression files are loaded on-demand.
      */
     public void loadConfigs() {
-        // Load main configuration files
-        this.mainConfig = loadConfig("config.yml");
-        this.messagesConfig = loadConfig("messages.yml");
-        
-        // Load system-specific configuration files
-        this.rankupConfig = loadConfig("rankup.yml");
-        this.prestigeConfig = loadConfig("prestige.yml");
-        
-        // Cache all configurations for easy access
         configCache.clear();
-        configCache.put("main", mainConfig);
-        configCache.put("messages", messagesConfig);
-        configCache.put("rankup", rankupConfig);
-        configCache.put("prestige", prestigeConfig);
-        
-        plugin.getLogger().info("All configuration files loaded successfully");
+        // Pre-load essential configs. Progression configs will be loaded as needed.
+        getConfig("config.yml");
+        getConfig("messages.yml");
+        plugin.getLogger().info("Essential configurations have been loaded.");
     }
 
     /**
-     * A robust method to load a specific YAML file.
-     * It creates the file from resources if it doesn't exist.
+     * A robust method to get a configuration file.
+     * If the file is not in the cache, it loads it from disk.
+     * If the file does not exist, it's created.
      *
-     * @param fileName The name of the file to load (e.g., "config.yml").
-     * @return The loaded FileConfiguration object.
+     * @param fileName The name of the file to load (e.g., "config.yml", "rebirth.yml").
+     * @return The loaded FileConfiguration object, or null on failure.
      */
-    private FileConfiguration loadConfig(String fileName) {
-        File file = new File(plugin.getDataFolder(), fileName);
-        if (!file.exists()) {
-            try {
-                plugin.saveResource(fileName, false);
-                plugin.getLogger().info("Created configuration file: " + fileName);
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.WARNING, "Failed to create configuration file: " + fileName, e);
-            }
+    public FileConfiguration getConfig(String fileName) {
+        if (fileName == null || fileName.isEmpty()) {
+            return null;
         }
-        
-        FileConfiguration config = YamlConfiguration.loadConfiguration(file);
-        
-        // Validate configuration
+        String lowerCaseFileName = fileName.toLowerCase();
+
+        // Return from cache if it exists
+        if (configCache.containsKey(lowerCaseFileName)) {
+            return configCache.get(lowerCaseFileName);
+        }
+
+        // Not in cache, so load it
+        plugin.getLogger().info("Loading configuration file: " + fileName);
+        FileConfiguration config = loadConfigFromFile(fileName);
+
         if (config != null) {
-            plugin.getLogger().fine("Successfully loaded configuration: " + fileName);
+            configCache.put(lowerCaseFileName, config);
         } else {
             plugin.getLogger().warning("Failed to load configuration: " + fileName);
         }
-        
         return config;
     }
 
     /**
-     * Get the main configuration file.
+     * Handles the file loading logic. If a file doesn't exist, it attempts to
+     * copy it from the plugin's resources. If that fails (as it will for custom
+     * progression files), it creates a new empty file.
+     *
+     * @param fileName The file to load.
+     * @return The loaded FileConfiguration.
      */
-    public FileConfiguration getMainConfig() {
-        return mainConfig;
+    private FileConfiguration loadConfigFromFile(String fileName) {
+        File file = new File(plugin.getDataFolder(), fileName);
+        if (!file.exists()) {
+            plugin.getLogger().info("Configuration file not found, attempting to create: " + fileName);
+            try {
+                // This will fail with IllegalArgumentException if the resource is not in the JAR
+                plugin.saveResource(fileName, false);
+                plugin.getLogger().info("Created '" + fileName + "' from plugin resources.");
+            } catch (IllegalArgumentException e) {
+                // This is the expected path for custom, user-defined progression files like 'rebirth.yml'
+                plugin.getLogger().warning("Resource '" + fileName + "' not found in JAR. Creating an empty file. Please configure it and reload.");
+                try {
+                    if (file.createNewFile()) {
+                        plugin.getLogger().info("Successfully created empty file: " + fileName);
+                    }
+                } catch (IOException ioException) {
+                    plugin.getLogger().log(Level.SEVERE, "Fatal: Could not create new configuration file: " + fileName, ioException);
+                    return null; // Return null on critical failure
+                }
+            }
+        }
+        return YamlConfiguration.loadConfiguration(file);
     }
 
     /**
-     * Get the messages configuration file.
+     * Gets the main configuration file from the cache.
+     */
+    public FileConfiguration getMainConfig() {
+        return getConfig("config.yml");
+    }
+
+    /**
+     * Gets the messages configuration file from the cache.
      */
     public FileConfiguration getMessagesConfig() {
-        return messagesConfig;
+        return getConfig("messages.yml");
     }
-    
+
     /**
-     * Get the rankup configuration file.
+     * Forces a reload of a specific configuration file by clearing it from the cache
+     * and loading it again from disk.
+     * @param fileName The name of the configuration to reload.
      */
-    public FileConfiguration getRankupConfig() {
-        return rankupConfig;
-    }
-    
-    /**
-     * Get the prestige configuration file.
-     */
-    public FileConfiguration getPrestigeConfig() {
-        return prestigeConfig;
-    }
-    
-    /**
-     * Get a specific configuration file by name.
-     * 
-     * @param configName The name of the configuration (main, messages, rankup, prestige)
-     * @return The FileConfiguration or null if not found
-     */
-    public FileConfiguration getConfig(String configName) {
-        return configCache.get(configName.toLowerCase());
-    }
-    
-    /**
-     * Reload a specific configuration file.
-     * 
-     * @param configName The name of the configuration to reload
-     * @return true if successful, false otherwise
-     */
-    public boolean reloadConfig(String configName) {
-        try {
-            switch (configName.toLowerCase()) {
-                case "main":
-                    this.mainConfig = loadConfig("config.yml");
-                    configCache.put("main", mainConfig);
-                    break;
-                case "messages":
-                    this.messagesConfig = loadConfig("messages.yml");
-                    configCache.put("messages", messagesConfig);
-                    break;
-                case "rankup":
-                    this.rankupConfig = loadConfig("rankup.yml");
-                    configCache.put("rankup", rankupConfig);
-                    break;
-                case "prestige":
-                    this.prestigeConfig = loadConfig("prestige.yml");
-                    configCache.put("prestige", prestigeConfig);
-                    break;
-                default:
-                    plugin.getLogger().warning("Unknown configuration file: " + configName);
-                    return false;
-            }
-            
-            plugin.getLogger().info("Reloaded configuration: " + configName);
-            return true;
-        } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to reload configuration: " + configName, e);
-            return false;
-        }
-    }
-    
-    /**
-     * Get all loaded configuration names.
-     * 
-     * @return Array of configuration names
-     */
-    public String[] getLoadedConfigs() {
-        return configCache.keySet().toArray(new String[0]);
-    }
-    
-    /**
-     * Check if a configuration file is loaded.
-     * 
-     * @param configName The name of the configuration to check
-     * @return true if loaded, false otherwise
-     */
-    public boolean isConfigLoaded(String configName) {
-        return configCache.containsKey(configName.toLowerCase());
+    public void reloadConfig(String fileName) {
+        String lowerCaseFileName = fileName.toLowerCase();
+        configCache.remove(lowerCaseFileName);
+        getConfig(lowerCaseFileName); // This will load it again and put it back in the cache
+        plugin.getLogger().info("Reloaded configuration: " + fileName);
     }
 }

@@ -33,6 +33,12 @@ database:
     username: "user"
     password: "password"
     table-prefix: "brankup_"
+    pool:
+      maximum-pool-size: 10    # Maximum number of connections in the pool
+      minimum-idle: 5          # Minimum number of idle connections
+      connection-timeout: 30000 # Connection timeout in milliseconds (30 seconds)
+      idle-timeout: 600000     # Maximum idle time in milliseconds (10 minutes)
+      max-lifetime: 1800000    # Maximum lifetime of a connection in milliseconds (30 minutes)
 
 # Currency definitions
 currencies:
@@ -347,4 +353,4 @@ Make small changes and test rather than changing everything at once.
 - **Performance Optimization Guide**: `PERFORMANCE_OPTIMIZATION.md`
 - **Plugin Commands**: See `plugin.yml` for available commands
 - **Placeholder Reference**: Check `messages.yml` for available placeholders
-- **Support**: Visit bumpier.dev for additional help 
+- **Support**: Visit bumpier.dev for additional help

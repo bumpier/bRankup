@@ -1,77 +1,86 @@
 package net.bumpier.brankup.data;
 
-import org.bukkit.Bukkit;
+import net.bumpier.brankup.bRankup;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
-import net.bumpier.brankup.bRankup;
 
 public class PlayerManagerService implements Listener {
 
     private final bRankup plugin;
     private final IDatabaseService databaseService;
-    
-    // OPTIMIZATION: Use more efficient caching with TTL (Time To Live)
+
+    // Dedicated executor for player data operations
+    private final ExecutorService executor = Executors.newFixedThreadPool(2, 
+            r -> new Thread(r, "bRankup-PlayerData-Thread"));
+
     private final Map<UUID, PlayerRankData> playerDataCache = new ConcurrentHashMap<>();
     private final Map<UUID, Long> cacheTimestamps = new ConcurrentHashMap<>();
-    
-    // OPTIMIZATION: Cache TTL settings
-    private static final long CACHE_TTL_MS = TimeUnit.MINUTES.toMillis(30); // 30 minutes
-    private static final long CLEANUP_INTERVAL_MS = TimeUnit.MINUTES.toMillis(5); // Cleanup every 5 minutes
-    private long lastCleanupTime = System.currentTimeMillis();
+    private final Map<UUID, CompletableFuture<PlayerRankData>> loadingFutures = new ConcurrentHashMap<>();
+
+    // Cache metrics
+    private long cacheHits = 0;
+    private long cacheMisses = 0;
+
+    // Cache settings
+    private final long cacheTtlMs;
+    private final int maxCachedPlayers;
 
     public PlayerManagerService(bRankup plugin, IDatabaseService databaseService) {
         this.plugin = plugin;
         this.databaseService = databaseService;
+
+        // Load cache settings from config
+        this.cacheTtlMs = TimeUnit.MINUTES.toMillis(
+            plugin.getConfigManager().getMainConfig().getLong("performance.cache.player-data-ttl", 30));
+        this.maxCachedPlayers = plugin.getConfigManager().getMainConfig().getInt("performance.cache.max-cached-players", 0);
+
+        // Register events
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
-        
-        // OPTIMIZATION: Schedule periodic cache cleanup
-        plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, this::performCacheCleanup, 
-            TimeUnit.MINUTES.toMillis(5) / 50, TimeUnit.MINUTES.toMillis(5) / 50);
+
+        // Calculate cleanup interval from config
+        long cleanupIntervalMinutes = plugin.getConfigManager().getMainConfig().getLong("performance.cache.cleanup-interval", 5);
+        long cleanupIntervalTicks = TimeUnit.MINUTES.toSeconds(cleanupIntervalMinutes) * 20L;
+
+        // Schedule cleanup task
+        plugin.getServer().getScheduler().runTaskTimerAsynchronously(
+            plugin, this::performCacheCleanup, cleanupIntervalTicks, cleanupIntervalTicks);
+
+        plugin.getLogger().info("Player data cache initialized with TTL: " + 
+            TimeUnit.MILLISECONDS.toMinutes(cacheTtlMs) + " minutes, max players: " + 
+            (maxCachedPlayers == 0 ? "unlimited" : maxCachedPlayers));
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-
-        // Step 1: Immediately create and cache a default data object.
-        // This prevents "data loading" messages and ensures a non-null value is always available for online players.
-        playerDataCache.put(uuid, PlayerRankData.newPlayer(uuid));
-
-        // Step 2: Asynchronously load the real data from the database.
-        databaseService.loadPlayerData(uuid).thenAccept(loadedData -> {
-            if (loadedData != null) {
-                // Step 3: Once loaded, replace the default object with the real data.
-                playerDataCache.put(uuid, loadedData);
-                cacheTimestamps.put(uuid, System.currentTimeMillis());
-                plugin.getLogger().info("Successfully loaded data for " + player.getName());
-            } else {
-                plugin.getLogger().warning("Loaded data was null for " + player.getName() + ", they will use default data.");
-            }
-        }).exceptionally(ex -> {
-            plugin.getLogger().log(Level.SEVERE, "Failed to load data for " + player.getName(), ex);
-            // The player will continue to use the default data object, preventing errors.
-            return null;
-        });
+        getOrLoadData(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
-        // Remove from cache first to prevent modifications during the save process
+
+        CompletableFuture<PlayerRankData> loadingFuture = loadingFutures.remove(uuid);
+        if (loadingFuture != null) {
+            loadingFuture.cancel(true);
+        }
+
         PlayerRankData data = playerDataCache.remove(uuid);
         cacheTimestamps.remove(uuid);
-
         if (data != null) {
             databaseService.savePlayerData(data).exceptionally(ex -> {
                 plugin.getLogger().log(Level.SEVERE, "Failed to save data for " + event.getPlayer().getName(), ex);
@@ -81,110 +90,179 @@ public class PlayerManagerService implements Listener {
     }
 
     /**
-     * Retrieves the cached rank data for a player.
-     * OPTIMIZATION: Implements cache TTL and automatic refresh for stale data.
+     * Synchronously gets player data from the cache.
+     * If data is not available, it returns a temporary default object to prevent
+     * placeholders from getting stuck on "Loading..." and triggers an async load.
+     *
      * @param uuid The player's UUID.
-     * @return The PlayerRankData, or null if not cached or expired.
+     * @return A non-null PlayerRankData object (either cached or a temporary default).
      */
+    public PlayerRankData getDataSynchronously(UUID uuid) {
+        PlayerRankData data = playerDataCache.get(uuid);
+        if (data == null) {
+            // Data isn't loaded. Trigger an async load in the background.
+            getOrLoadData(uuid);
+            // Return a temporary, non-null object for now.
+            return PlayerRankData.newPlayer(uuid);
+        }
+        return data;
+    }
+
+    public CompletableFuture<PlayerRankData> getOrLoadData(UUID uuid) {
+        // Track performance
+        plugin.getPerformanceMonitor().startOperation("player-data-load");
+
+        // Check if we're already loading this player's data
+        CompletableFuture<PlayerRankData> loadingFuture = loadingFutures.get(uuid);
+        if (loadingFuture != null) {
+            plugin.getPerformanceMonitor().endOperation("player-data-load");
+            return loadingFuture;
+        }
+
+        // Check if data is in cache and not expired
+        PlayerRankData cachedData = playerDataCache.get(uuid);
+        if (cachedData != null) {
+            Long timestamp = cacheTimestamps.get(uuid);
+            if (timestamp != null && (System.currentTimeMillis() - timestamp) < cacheTtlMs) {
+                // Cache hit
+                cacheHits++;
+                plugin.getPerformanceMonitor().recordCacheHit();
+                plugin.getPerformanceMonitor().endOperation("player-data-load");
+                return CompletableFuture.completedFuture(cachedData);
+            }
+        }
+
+        // Cache miss - need to load from database
+        cacheMisses++;
+        plugin.getPerformanceMonitor().recordCacheMiss();
+
+        CompletableFuture<PlayerRankData> newLoadFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                // Load data from database
+                PlayerRankData data = databaseService.loadPlayerData(uuid).join();
+                if (data == null) {
+                    data = PlayerRankData.newPlayer(uuid);
+                }
+
+                // Update cache
+                playerDataCache.put(uuid, data);
+                cacheTimestamps.put(uuid, System.currentTimeMillis());
+
+                // Enforce max cache size if needed
+                if (maxCachedPlayers > 0 && playerDataCache.size() > maxCachedPlayers) {
+                    performCacheCleanup();
+                }
+
+                return data;
+            } finally {
+                loadingFutures.remove(uuid);
+                plugin.getPerformanceMonitor().endOperation("player-data-load");
+            }
+        }, executor); // Use our dedicated executor
+
+        loadingFutures.put(uuid, newLoadFuture);
+        return newLoadFuture;
+    }
+
     /**
-     * Retrieves the cached rank data for a player.
-     * This will no longer return null for an online player after the onPlayerJoin event.
+     * Gets player data ONLY if it is already in the cache. Does not trigger a database load.
+     * @param uuid The player's UUID.
+     * @return The cached PlayerRankData, or null if not in cache.
      */
     public PlayerRankData getData(UUID uuid) {
         return playerDataCache.get(uuid);
     }
-    
-    /**
-     * OPTIMIZATION: Refresh player data from database asynchronously
-     */
-    private void refreshPlayerData(UUID uuid) {
-        try {
-            PlayerRankData freshData = databaseService.loadPlayerData(uuid).join();
-            if (freshData != null) {
-                playerDataCache.put(uuid, freshData);
-                cacheTimestamps.put(uuid, System.currentTimeMillis());
-            }
-        } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to refresh data for player " + uuid, e);
-        }
-    }
-    
-    /**
-     * OPTIMIZATION: Force refresh player data (useful for admin commands)
-     */
-    public CompletableFuture<PlayerRankData> forceRefreshData(UUID uuid) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                PlayerRankData freshData = databaseService.loadPlayerData(uuid).join();
-                if (freshData != null) {
-                    playerDataCache.put(uuid, freshData);
-                    cacheTimestamps.put(uuid, System.currentTimeMillis());
-                }
-                return freshData;
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.WARNING, "Failed to force refresh data for player " + uuid, e);
-                return null;
-            }
-        });
-    }
 
     /**
-     * Saves all online players' data. Useful for scheduled saves or on disable.
-     * OPTIMIZATION: Implements batch saving for better performance.
+     * Saves all cached player data to the database in an optimized batch operation.
+     * This method is called during plugin shutdown or reload.
      */
     public void saveAll() {
         if (playerDataCache.isEmpty()) return;
 
-        plugin.getLogger().info("Saving data for all online players...");
-        
-        // OPTIMIZATION: Save data asynchronously in batches
-        CompletableFuture.runAsync(() -> {
-            try {
-                for (Map.Entry<UUID, PlayerRankData> entry : playerDataCache.entrySet()) {
-                    try {
-                        databaseService.savePlayerData(entry.getValue()).join();
-                    } catch (Exception e) {
-                        plugin.getLogger().log(Level.WARNING, "Failed to save data for player " + entry.getKey(), e);
-                    }
-                }
-                plugin.getLogger().info("Save task complete.");
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Error during batch save operation", e);
-            }
-        });
-    }
-    
-    /**
-     * OPTIMIZATION: Perform periodic cache cleanup to prevent memory leaks
-     */
-    private void performCacheCleanup() {
-        long cleanupThreshold = System.currentTimeMillis() - CACHE_TTL_MS;
+        plugin.getLogger().info("Saving data for " + playerDataCache.size() + " cached players...");
+        plugin.getPerformanceMonitor().startOperation("batch-save");
 
+        // Create a list of futures to track completion
+        List<CompletableFuture<Void>> saveFutures = new ArrayList<>();
+
+        // Save each player's data
+        for (PlayerRankData data : playerDataCache.values()) {
+            saveFutures.add(databaseService.savePlayerData(data));
+        }
+
+        // Wait for all saves to complete
+        CompletableFuture.allOf(saveFutures.toArray(new CompletableFuture[0])).join();
+
+        plugin.getPerformanceMonitor().endOperation("batch-save");
+        plugin.getLogger().info("All player data saved successfully.");
+    }
+
+    /**
+     * Shuts down the player manager service, saving all data and cleaning up resources.
+     * This should be called when the plugin is disabled.
+     */
+    public void shutdown() {
+        // Save all player data
+        saveAll();
+
+        // Shutdown the executor
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        // Clear caches
+        clearCache();
+
+        // Log cache statistics
+        double hitRatio = cacheHits + cacheMisses > 0 
+            ? (double) cacheHits / (cacheHits + cacheMisses) * 100 
+            : 0;
+        plugin.getLogger().info(String.format(
+            "Cache statistics - Hits: %d, Misses: %d, Ratio: %.1f%%", 
+            cacheHits, cacheMisses, hitRatio));
+    }
+
+    private void performCacheCleanup() {
+        long cleanupThreshold = System.currentTimeMillis() - cacheTtlMs;
+
+        // Track performance metrics
+        plugin.getPerformanceMonitor().startOperation("cache-cleanup");
+
+        // First, remove expired entries
         cacheTimestamps.entrySet().removeIf(entry -> {
             if (entry.getValue() < cleanupThreshold) {
-                // Only remove if the player is offline
-                if (Bukkit.getPlayer(entry.getKey()) == null) {
-                    playerDataCache.remove(entry.getKey());
-                    return true;
-                }
+                playerDataCache.remove(entry.getKey());
+                return true;
             }
             return false;
         });
+
+        // Then, if we have a max cache size, trim down to that size
+        if (maxCachedPlayers > 0 && playerDataCache.size() > maxCachedPlayers) {
+            // Sort entries by timestamp (oldest first)
+            cacheTimestamps.entrySet().stream()
+                .sorted(Map.Entry.comparingByValue())
+                .limit(playerDataCache.size() - maxCachedPlayers)
+                .forEach(entry -> {
+                    playerDataCache.remove(entry.getKey());
+                    cacheTimestamps.remove(entry.getKey());
+                });
+        }
+
+        plugin.getPerformanceMonitor().endOperation("cache-cleanup");
     }
-    
-    /**
-     * OPTIMIZATION: Get cache statistics for monitoring
-     */
-    public int getCacheSize() {
-        return playerDataCache.size();
-    }
-    
-    /**
-     * OPTIMIZATION: Clear entire cache (useful for reloads)
-     */
+
     public void clearCache() {
         playerDataCache.clear();
         cacheTimestamps.clear();
+        loadingFutures.clear();
         plugin.getLogger().info("Player data cache cleared.");
     }
 }

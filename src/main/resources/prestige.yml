@@ -23,11 +23,11 @@ reset-settings:
 
 # Feature settings
 features:
-  auto-prestige:
+  auto-progression:
     enabled: true
     permission: "brankup.prestige.auto"
     delay: 10 # In Ticks
-  max-prestige:
+  max-progression:
     enabled: true
     permission: "brankup.prestige.max"
 
@@ -60,7 +60,7 @@ display-settings:
   prestige-title:
     enabled: true
     title: "&6&lLEVEL UP!"
-    subtitle: "&7You are now Level &b%brankup_prestige_level_next%&7!"
+    subtitle: "&7You are now Level &b<new_prestige>&7!"
     fade-in: 10
     stay: 40
     fade-out: 10
@@ -88,4 +88,4 @@ rewards:
   
   interval-rewards:
     "every-10":
-      - "crate give %brankup_player_name% RankKey 1" 
+      - "crate give %brankup_player_name% RankKey 1"

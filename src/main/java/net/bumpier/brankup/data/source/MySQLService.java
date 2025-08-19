@@ -1,10 +1,11 @@
 package net.bumpier.brankup.data.source;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import net.bumpier.brankup.bRankup;
 import net.bumpier.brankup.data.IDatabaseService;
 import net.bumpier.brankup.data.PlayerRankData;
 
-import java.io.File;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -12,31 +13,58 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
 
-public class SQLiteService implements IDatabaseService {
+public class MySQLService implements IDatabaseService {
 
     private final bRankup plugin;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> new Thread(r, "bRankup-DB-Thread"));
+    private final ExecutorService executor = Executors.newFixedThreadPool(4, r -> new Thread(r, "bRankup-DB-Thread"));
     private final String tablePrefix;
-    private String connectionString;
+    private HikariDataSource dataSource;
 
-    // Connection pool (single connection for SQLite to prevent locking issues)
-    private Connection connection;
-    private long lastConnectionCheck = 0;
-    private static final long CONNECTION_VALIDITY_CHECK_INTERVAL = 30000; // 30 seconds
-
-    public SQLiteService(bRankup plugin) {
+    public MySQLService(bRankup plugin) {
         this.plugin = plugin;
         this.tablePrefix = plugin.getConfigManager().getMainConfig().getString("database.table-prefix", "brankup_");
     }
 
     @Override
     public void initialize() {
-        File dbFile = new File(plugin.getDataFolder(), "playerdata.db");
-        this.connectionString = "jdbc:sqlite:" + dbFile.getAbsolutePath();
+        String host = plugin.getConfigManager().getMainConfig().getString("database.mysql.host", "localhost");
+        int port = plugin.getConfigManager().getMainConfig().getInt("database.mysql.port", 3306);
+        String database = plugin.getConfigManager().getMainConfig().getString("database.mysql.database", "brankup");
+        String username = plugin.getConfigManager().getMainConfig().getString("database.mysql.username", "root");
+        String password = plugin.getConfigManager().getMainConfig().getString("database.mysql.password", "");
+        
+        // Configure HikariCP
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl("jdbc:mysql://" + host + ":" + port + "/" + database + "?useSSL=false&allowPublicKeyRetrieval=true");
+        config.setUsername(username);
+        config.setPassword(password);
+        config.setMaximumPoolSize(plugin.getConfigManager().getMainConfig().getInt("database.mysql.pool.maximum-pool-size", 10));
+        config.setMinimumIdle(plugin.getConfigManager().getMainConfig().getInt("database.mysql.pool.minimum-idle", 2));
+        config.setConnectionTimeout(plugin.getConfigManager().getMainConfig().getLong("database.mysql.pool.connection-timeout", 30000)); // 30 seconds
+        config.setIdleTimeout(plugin.getConfigManager().getMainConfig().getLong("database.mysql.pool.idle-timeout", 600000)); // 10 minutes
+        config.setMaxLifetime(plugin.getConfigManager().getMainConfig().getLong("database.mysql.pool.max-lifetime", 1800000)); // 30 minutes
+        config.addDataSourceProperty("cachePrepStmts", "true");
+        config.addDataSourceProperty("prepStmtCacheSize", "250");
+        config.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
+        config.addDataSourceProperty("useServerPrepStmts", "true");
+        config.addDataSourceProperty("useLocalSessionState", "true");
+        config.addDataSourceProperty("rewriteBatchedStatements", "true");
+        config.addDataSourceProperty("cacheResultSetMetadata", "true");
+        config.addDataSourceProperty("cacheServerConfiguration", "true");
+        config.addDataSourceProperty("elideSetAutoCommits", "true");
+        config.addDataSourceProperty("maintainTimeStats", "false");
+        
+        try {
+            dataSource = new HikariDataSource(config);
+            plugin.getLogger().info("MySQL connection pool initialized successfully.");
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to initialize MySQL connection pool", e);
+            return;
+        }
 
         final String createLevelsSql = "CREATE TABLE IF NOT EXISTS " + tablePrefix + "progression_levels (uuid VARCHAR(36) NOT NULL, progression_id VARCHAR(255) NOT NULL, level BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (uuid, progression_id));";
         final String createAutoStatesSql = "CREATE TABLE IF NOT EXISTS " + tablePrefix + "auto_progression_states (uuid VARCHAR(36) NOT NULL, progression_id VARCHAR(255) NOT NULL, is_enabled BOOLEAN NOT NULL DEFAULT 0, PRIMARY KEY (uuid, progression_id));";
-        final String createRewardsSql = "CREATE TABLE IF NOT EXISTS " + tablePrefix + "claimed_rewards (id INTEGER PRIMARY KEY AUTOINCREMENT, uuid VARCHAR(36) NOT NULL, reward_key VARCHAR(255) NOT NULL, UNIQUE(uuid, reward_key));";
+        final String createRewardsSql = "CREATE TABLE IF NOT EXISTS " + tablePrefix + "claimed_rewards (id INT AUTO_INCREMENT PRIMARY KEY, uuid VARCHAR(36) NOT NULL, reward_key VARCHAR(255) NOT NULL, UNIQUE INDEX idx_unique_reward (uuid, reward_key));";
 
         // Create indices for faster lookups
         final String createLevelsIndexSql = "CREATE INDEX IF NOT EXISTS " + tablePrefix + "idx_levels_uuid ON " + tablePrefix + "progression_levels (uuid);";
@@ -51,28 +79,32 @@ public class SQLiteService implements IDatabaseService {
                 stmt.execute(createRewardsSql);
 
                 // Create indices
-                stmt.execute(createLevelsIndexSql);
-                stmt.execute(createAutoStatesIndexSql);
-                stmt.execute(createRewardsIndexSql);
+                try {
+                    stmt.execute(createLevelsIndexSql);
+                    stmt.execute(createAutoStatesIndexSql);
+                    stmt.execute(createRewardsIndexSql);
+                } catch (SQLException e) {
+                    // MySQL may not support IF NOT EXISTS for indices, so handle this gracefully
+                    if (!e.getMessage().contains("Duplicate key")) {
+                        throw e;
+                    }
+                }
 
-                plugin.getLogger().info("SQLite database tables and indices initialized successfully.");
+                plugin.getLogger().info("MySQL database tables and indices initialized successfully.");
             } catch (SQLException e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to initialize SQLite database", e);
+                plugin.getLogger().log(Level.SEVERE, "Failed to initialize MySQL database", e);
             }
         });
     }
 
     @Override
     public CompletableFuture<PlayerRankData> loadPlayerData(UUID uuid) {
-        // CORRECTED: This method now uses non-blocking future composition to prevent deadlocks.
-        // It asynchronously requests all pieces of data and combines them once they are all ready.
         CompletableFuture<Map<String, Long>> levelsFuture = loadProgressionLevels(uuid);
         CompletableFuture<Set<String>> rewardsFuture = loadClaimedRewards(uuid);
         CompletableFuture<Map<String, Boolean>> autoStatesFuture = loadAutoProgressionStates(uuid);
 
         return CompletableFuture.allOf(levelsFuture, rewardsFuture, autoStatesFuture)
                 .thenApplyAsync(v -> {
-                    // .join() is now safe because allOf guarantees the futures have completed.
                     Map<String, Long> levels = levelsFuture.join();
                     Set<String> rewards = rewardsFuture.join();
                     Map<String, Boolean> autoStates = autoStatesFuture.join();
@@ -117,8 +149,9 @@ public class SQLiteService implements IDatabaseService {
     @Override
     public CompletableFuture<Void> savePlayerData(PlayerRankData data) {
         return runAsync(() -> {
-            String levelUpsertSql = "INSERT INTO " + tablePrefix + "progression_levels (uuid, progression_id, level) VALUES (?, ?, ?) ON CONFLICT(uuid, progression_id) DO UPDATE SET level = excluded.level;";
-            String stateUpsertSql = "INSERT INTO " + tablePrefix + "auto_progression_states (uuid, progression_id, is_enabled) VALUES (?, ?, ?) ON CONFLICT(uuid, progression_id) DO UPDATE SET is_enabled = excluded.is_enabled;";
+            // MySQL uses different syntax for upsert compared to SQLite
+            String levelUpsertSql = "INSERT INTO " + tablePrefix + "progression_levels (uuid, progression_id, level) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE level = VALUES(level);";
+            String stateUpsertSql = "INSERT INTO " + tablePrefix + "auto_progression_states (uuid, progression_id, is_enabled) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE is_enabled = VALUES(is_enabled);";
 
             try (Connection conn = getConnection()) {
                 conn.setAutoCommit(false);
@@ -173,7 +206,7 @@ public class SQLiteService implements IDatabaseService {
     @Override
     public CompletableFuture<Void> saveClaimedReward(UUID uuid, String rewardKey) {
         return runAsync(() -> {
-            final String insertSql = "INSERT OR IGNORE INTO " + tablePrefix + "claimed_rewards (uuid, reward_key) VALUES (?, ?);";
+            final String insertSql = "INSERT IGNORE INTO " + tablePrefix + "claimed_rewards (uuid, reward_key) VALUES (?, ?);";
             try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                 pstmt.setString(1, uuid.toString());
                 pstmt.setString(2, rewardKey);
@@ -186,18 +219,10 @@ public class SQLiteService implements IDatabaseService {
 
     @Override
     public void shutdown() {
-        // Close the database connection
-        if (connection != null) {
-            try {
-                if (!connection.isClosed()) {
-                    connection.close();
-                    plugin.getLogger().info("Database connection closed successfully.");
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING, "Error closing database connection", e);
-            } finally {
-                connection = null;
-            }
+        // Close the connection pool
+        if (dataSource != null && !dataSource.isClosed()) {
+            dataSource.close();
+            plugin.getLogger().info("MySQL connection pool closed successfully.");
         }
 
         // Shutdown the executor service
@@ -205,62 +230,10 @@ public class SQLiteService implements IDatabaseService {
     }
 
     private Connection getConnection() throws SQLException {
-        long currentTime = System.currentTimeMillis();
-        boolean needsNewConnection = false;
-        
-        // Always check if the connection is valid before returning it
-        if (connection == null) {
-            needsNewConnection = true;
-        } else {
-            try {
-                // Check if connection is closed or invalid
-                if (connection.isClosed() || !connection.isValid(1)) {
-                    needsNewConnection = true;
-                    try {
-                        connection.close();
-                    } catch (SQLException ignored) {
-                        // Ignore errors when closing invalid connection
-                    } finally {
-                        connection = null;
-                    }
-                }
-            } catch (SQLException e) {
-                // If validation fails, assume connection is invalid
-                needsNewConnection = true;
-                try {
-                    connection.close();
-                } catch (SQLException ignored) {
-                    // Ignore errors when closing invalid connection
-                } finally {
-                    connection = null;
-                }
-                plugin.getLogger().log(Level.WARNING, "Database connection validation failed, creating new connection", e);
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            throw new SQLException("Connection pool is not initialized or has been closed.");
         }
-
-        // Create a new connection if needed
-        if (needsNewConnection) {
-            try {
-                connection = DriverManager.getConnection(connectionString);
-                // Enable WAL mode for better concurrency
-                try (Statement stmt = connection.createStatement()) {
-                    stmt.execute("PRAGMA journal_mode=WAL;");
-                    stmt.execute("PRAGMA synchronous=NORMAL;");
-                    stmt.execute("PRAGMA cache_size=10000;");
-                    stmt.execute("PRAGMA temp_store=MEMORY;");
-                }
-                plugin.getLogger().info("Created new SQLite database connection");
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to create new database connection", e);
-                throw e; // Re-throw to let caller handle it
-            }
-            lastConnectionCheck = currentTime;
-        } else if (currentTime - lastConnectionCheck > CONNECTION_VALIDITY_CHECK_INTERVAL) {
-            // Update the last check time even if we didn't need a new connection
-            lastConnectionCheck = currentTime;
-        }
-
-        return connection;
+        return dataSource.getConnection();
     }
 
     private CompletableFuture<Void> runAsync(Runnable runnable) {

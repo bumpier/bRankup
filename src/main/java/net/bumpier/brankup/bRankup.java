@@ -4,13 +4,12 @@ import com.edwardbelt.edprison.utils.CurrencyUtils;
 import net.bumpier.brankup.command.PerformanceCommand;
 import net.bumpier.brankup.command.ProgressionCommand;
 import net.bumpier.brankup.command.bRankupAdminCommand;
-import net.bumpier.brankup.command.generic.GenericAutoToggleCommand;
-import net.bumpier.brankup.command.generic.GenericMaxProgressionCommand;
 import net.bumpier.brankup.command.generic.GenericProgressionCommand;
 import net.bumpier.brankup.config.ConfigManager;
 import net.bumpier.brankup.data.IDatabaseService;
 import net.bumpier.brankup.data.PlayerManagerService;
 import net.bumpier.brankup.data.source.SQLiteService;
+import net.bumpier.brankup.data.source.MySQLService;
 import net.bumpier.brankup.economy.EdPrisonEconomyService;
 import net.bumpier.brankup.economy.IEconomyService;
 import net.bumpier.brankup.papi.bRankupExpansion;
@@ -26,6 +25,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandMap;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.SimplePluginManager;
@@ -96,26 +96,27 @@ public final class bRankup extends JavaPlugin {
     }
 
     private void registerCommands() {
-        Objects.requireNonNull(getCommand("brankupadmin")).setExecutor(new bRankupAdminCommand(this));
+        // Create the handler once
+        bRankupAdminCommand adminCommandHandler = new bRankupAdminCommand(this);
+        // Get the command from the plugin.yml
+        PluginCommand adminPluginCommand = getCommand("brankupadmin");
+        if (adminPluginCommand != null) {
+            adminPluginCommand.setExecutor(adminCommandHandler);
+            adminPluginCommand.setTabCompleter(adminCommandHandler); // Register the tab completer
+        }
+
         Objects.requireNonNull(getCommand("performance")).setExecutor(new PerformanceCommand(this));
         Objects.requireNonNull(getCommand("progression")).setExecutor(new ProgressionCommand(this));
 
         for (ProgressionType type : progressionChainManager.getAllProgressionTypes()) {
             if (!type.isEnabled()) continue;
-
-            registerCommand(type.getCommand(), new GenericProgressionCommand(this, type), type.getCommandAlias());
-
-            if (type.isMaxProgressionEnabled()) {
-                registerCommand("max" + type.getId(), new GenericMaxProgressionCommand(this, type), "m" + type.getId());
-            }
-
-            if (type.isAutoProgressionEnabled()) {
-                registerCommand("auto" + type.getId(), new GenericAutoToggleCommand(this, type), "a" + type.getId());
-            }
+            // Register the single, unified command handler for each progression type
+            GenericProgressionCommand commandHandler = new GenericProgressionCommand(this, type);
+            registerCommand(type.getCommand(), commandHandler, commandHandler, type.getCommandAlias());
         }
     }
 
-    private void registerCommand(String name, CommandExecutor executor, String... aliases) {
+    private void registerCommand(String name, CommandExecutor executor, TabCompleter completer, String... aliases) {
         try {
             final Field bukkitCommandMap = SimplePluginManager.class.getDeclaredField("commandMap");
             bukkitCommandMap.setAccessible(true);
@@ -126,6 +127,8 @@ public final class bRankup extends JavaPlugin {
             PluginCommand command = c.newInstance(name, this);
 
             command.setExecutor(executor);
+            command.setTabCompleter(completer);
+
             if (aliases != null && aliases.length > 0 && aliases[0] != null) {
                 command.setAliases(List.of(aliases));
             }
@@ -139,17 +142,13 @@ public final class bRankup extends JavaPlugin {
     public void performReload() {
         getLogger().info("Performing a deep reload of configurations and services...");
         configManager.loadConfigs();
-
         progressionChainManager.loadProgressionTypes();
-
         economyServices.clear();
         setupEconomyServices();
         setupProgressionServices();
-
         if (playerManagerService != null) {
             playerManagerService.clearCache();
         }
-
         getLogger().info("Reload complete.");
     }
 
@@ -212,8 +211,19 @@ public final class bRankup extends JavaPlugin {
         String dbType = configManager.getMainConfig().getString("database.type", "SQLite").toUpperCase();
         if (dbType.equals("SQLITE")) {
             this.databaseService = new SQLiteService(this);
+            getLogger().info("Using SQLite database storage");
+        } else if (dbType.equals("MYSQL")) {
+            try {
+                // Ensure MySQL driver is loaded
+                Class.forName("com.mysql.cj.jdbc.Driver");
+                this.databaseService = new MySQLService(this);
+                getLogger().info("Using MySQL database storage");
+            } catch (ClassNotFoundException e) {
+                getLogger().log(Level.SEVERE, "MySQL driver not found. Defaulting to SQLite.", e);
+                this.databaseService = new SQLiteService(this);
+            }
         } else {
-            getLogger().log(Level.WARNING, "MySQL not implemented yet. Defaulting to SQLite.");
+            getLogger().log(Level.WARNING, "Unknown database type: " + dbType + ". Defaulting to SQLite.");
             this.databaseService = new SQLiteService(this);
         }
         databaseService.initialize();

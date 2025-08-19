@@ -1,10 +1,15 @@
 package net.bumpier.brankup.progression;
 
+import net.bumpier.brankup.bRankup;
+import net.bumpier.brankup.data.PlayerRankData;
 import org.bukkit.configuration.ConfigurationSection;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 
 public class ProgressionCostService {
 
@@ -14,17 +19,23 @@ public class ProgressionCostService {
     private final BigDecimal exponentialBaseCost;
     private final double exponentialMultiplier;
 
+    // REFACTORED: Generic scaling settings
     private final boolean scalingEnabled;
+    private final String scalingType;
     private final String scalingMode;
     private final double scalingValue;
-    
-    // OPTIMIZATION: Cache expensive calculations to avoid repeated computation
-    private final Map<Long, BigDecimal> costCache = new ConcurrentHashMap<>();
-    private final Map<Long, BigDecimal> scalingCache = new ConcurrentHashMap<>();
-    
-    // OPTIMIZATION: Cache constants to avoid repeated BigDecimal creation
+
+    // Cache with bounded size and LRU eviction policy
+    private final Map<String, BigDecimal> costCache;
+    private final int maxCacheSize;
     private final BigDecimal scalingMultiplier;
-    private final BigDecimal scalingAdditive;
+
+    // Cache metrics
+    private final AtomicLong cacheHits = new AtomicLong(0);
+    private final AtomicLong cacheMisses = new AtomicLong(0);
+
+    // Pre-computed powers for common exponents (optimization for exponential calculation)
+    private final Map<Integer, Double> powerCache = new ConcurrentHashMap<>();
 
     public ProgressionCostService(ConfigurationSection currencySettings) {
         this.calculationMode = currencySettings.getString("calculation-mode", "EXPONENTIAL").toUpperCase();
@@ -33,39 +44,54 @@ public class ProgressionCostService {
         this.exponentialBaseCost = new BigDecimal(currencySettings.getString("exponential.base-cost", "1000"));
         this.exponentialMultiplier = currencySettings.getDouble("exponential.cost-multiplier", 1.15);
 
-        ConfigurationSection scalingConfig = currencySettings.getConfigurationSection("prestige-cost-scaling");
+        // REFACTORED: Read generic scaling config
+        ConfigurationSection scalingConfig = currencySettings.getConfigurationSection("cost-scaling");
         if (scalingConfig != null) {
             this.scalingEnabled = scalingConfig.getBoolean("enabled", false);
+            this.scalingType = scalingConfig.getString("scale-with");
             this.scalingMode = scalingConfig.getString("mode", "MULTIPLIER").toUpperCase();
             this.scalingValue = scalingConfig.getDouble("value", 0.0);
         } else {
             this.scalingEnabled = false;
+            this.scalingType = null;
             this.scalingMode = "MULTIPLIER";
             this.scalingValue = 0.0;
         }
-        
-        // OPTIMIZATION: Pre-calculate scaling constants
-        this.scalingMultiplier = BigDecimal.valueOf(scalingValue);
-        this.scalingAdditive = BigDecimal.valueOf(scalingValue);
+
+        this.scalingMultiplier = BigDecimal.valueOf(this.scalingValue);
+
+        // Initialize cache with bounded size and LRU eviction policy
+        this.maxCacheSize = currencySettings.getInt("max-cache-size", 1000);
+
+        // Create a LinkedHashMap with access-order that automatically removes oldest entries when size exceeds maxCacheSize
+        this.costCache = Collections.synchronizedMap(new LinkedHashMap<String, BigDecimal>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, BigDecimal> eldest) {
+                return size() > maxCacheSize;
+            }
+        });
+
+        // Pre-compute powers for common exponents (0-50)
+        for (int i = 0; i <= 50; i++) {
+            powerCache.put(i, Math.pow(exponentialMultiplier, i));
+        }
     }
 
     /**
-     * Calculates the cost for the next level, optionally applying prestige scaling.
-     * OPTIMIZATION: Uses caching to avoid repeated expensive calculations.
-     * @param currentLevel The current rank or prestige level.
-     * @param prestigeLevel The player's current prestige level (used for rankup cost scaling).
+     * Calculates the cost for the next level, optionally applying dynamic scaling.
+     * @param currentLevel The current level of this progression type.
+     * @param playerData The full data object for the player, used to get scaling levels.
      * @return The final calculated cost.
      */
-    public BigDecimal getCost(long currentLevel, long prestigeLevel) {
-        // OPTIMIZATION: Create cache key for this specific calculation
-        long cacheKey = (currentLevel << 32) | prestigeLevel;
-        
-        // OPTIMIZATION: Check cache first
-        BigDecimal cachedCost = costCache.get(cacheKey);
-        if (cachedCost != null) {
-            return cachedCost;
+    public BigDecimal getCost(long currentLevel, PlayerRankData playerData) {
+        // Cache key now needs to incorporate the scaling level to be accurate
+        long scalingLevel = (scalingEnabled && scalingType != null) ? playerData.getProgressionLevel(scalingType) : 0;
+        long cacheKey = (currentLevel << 32) | scalingLevel;
+
+        if (costCache.containsKey(cacheKey)) {
+            return costCache.get(cacheKey);
         }
-        
+
         BigDecimal baseCost = switch (calculationMode) {
             case "LINEAR" -> calculateLinearCost(currentLevel);
             case "EXPONENTIAL" -> calculateExponentialCost(currentLevel);
@@ -73,76 +99,40 @@ public class ProgressionCostService {
         };
 
         BigDecimal finalCost;
-        if (scalingEnabled && prestigeLevel > 0) {
-            finalCost = applyPrestigeScaling(baseCost, prestigeLevel);
+        if (scalingEnabled && scalingType != null && scalingLevel > 0) {
+            finalCost = applyScaling(baseCost, scalingLevel);
         } else {
             finalCost = baseCost;
         }
-        
-        // OPTIMIZATION: Cache the result for future use
-        costCache.put(cacheKey, finalCost);
-        
+
+        costCache.put(String.valueOf(cacheKey), finalCost);
         return finalCost;
     }
-    
-    /**
-     * OPTIMIZATION: Clear cache when configuration changes to ensure consistency
-     */
+
     public void clearCache() {
         costCache.clear();
-        scalingCache.clear();
     }
 
-    private BigDecimal applyPrestigeScaling(BigDecimal baseCost, long prestigeLevel) {
-        // OPTIMIZATION: Check scaling cache first
-        long scalingCacheKey = prestigeLevel;
-        BigDecimal cachedScaling = scalingCache.get(scalingCacheKey);
-        if (cachedScaling != null) {
-            return baseCost.multiply(cachedScaling).setScale(2, RoundingMode.HALF_UP);
+    private BigDecimal applyScaling(BigDecimal baseCost, long scalingLevel) {
+        if ("MULTIPLIER".equals(scalingMode)) {
+            // Formula: baseCost * (1 + (scalingLevel * value))
+            BigDecimal multiplier = BigDecimal.ONE.add(scalingMultiplier.multiply(BigDecimal.valueOf(scalingLevel)));
+            return baseCost.multiply(multiplier).setScale(0, RoundingMode.HALF_UP);
+        } else if ("ADDITIVE".equals(scalingMode)) {
+            // Formula: baseCost + (scalingLevel * value)
+            BigDecimal addition = scalingMultiplier.multiply(BigDecimal.valueOf(scalingLevel));
+            return baseCost.add(addition).setScale(0, RoundingMode.HALF_UP);
         }
-        
-        BigDecimal scalingResult;
-        if (scalingMode.equals("MULTIPLIER")) {
-            // OPTIMIZATION: Use pre-calculated constants and more efficient math
-            // Formula: baseCost * (1 + (prestigeLevel * scalingValue))
-            BigDecimal prestigeMultiplier = BigDecimal.ONE.add(scalingMultiplier.multiply(BigDecimal.valueOf(prestigeLevel)));
-            scalingResult = prestigeMultiplier;
-        } else if (scalingMode.equals("ADDITIVE")) {
-            // OPTIMIZATION: Use pre-calculated constants
-            // Formula: baseCost + (prestigeLevel * scalingValue)
-            BigDecimal prestigeAddition = scalingAdditive.multiply(BigDecimal.valueOf(prestigeLevel));
-            scalingResult = BigDecimal.ONE.add(prestigeAddition.divide(baseCost, 10, RoundingMode.HALF_UP));
-        } else {
-            scalingResult = BigDecimal.ONE;
-        }
-        
-        // OPTIMIZATION: Cache scaling result for future use
-        scalingCache.put(scalingCacheKey, scalingResult);
-        
-        return baseCost.multiply(scalingResult).setScale(2, RoundingMode.HALF_UP);
+        return baseCost;
     }
 
     private BigDecimal calculateLinearCost(long currentLevel) {
-        // OPTIMIZATION: More efficient linear calculation
-        if (currentLevel == 0) {
-            return linearBaseCost;
-        }
         BigDecimal levelMultiplier = linearCostPerLevel.multiply(BigDecimal.valueOf(currentLevel));
         return linearBaseCost.add(levelMultiplier);
     }
 
     private BigDecimal calculateExponentialCost(long currentLevel) {
-        // OPTIMIZATION: More efficient exponential calculation with early returns
-        if (currentLevel == 0) {
-            return exponentialBaseCost;
-        }
-        if (currentLevel == 1) {
-            return exponentialBaseCost.multiply(BigDecimal.valueOf(exponentialMultiplier));
-        }
-        
-        // OPTIMIZATION: Use Math.pow for double precision, then convert to BigDecimal
-        // This is much faster than BigDecimal.pow for large exponents
         double result = exponentialBaseCost.doubleValue() * Math.pow(exponentialMultiplier, currentLevel);
-        return BigDecimal.valueOf(result).setScale(2, RoundingMode.HALF_UP);
+        return BigDecimal.valueOf(result).setScale(0, RoundingMode.HALF_UP);
     }
 }

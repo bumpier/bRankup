@@ -71,7 +71,7 @@ display-settings:
   rebirth-title:
     enabled: true
     title: "&d&lREBIRTH ACHIEVED!"
-    subtitle: "&7You have transcended to Rebirth &d%brankup_rebirth_level%&7!"
+    subtitle: "&7You have transcended to Rebirth &d<new_rebirth>&7!"
     fade-in: 15
     stay: 60
     fade-out: 15
@@ -106,4 +106,4 @@ rewards:
       - "crate give %brankup_player_name% RebirthKey 1"
     "every-10":
       - "crate give %brankup_player_name% RebirthKey 2"
-      - "eco give %brankup_player_name% 10000" 
+      - "eco give %brankup_player_name% 10000"

@@ -12,19 +12,19 @@ import java.util.logging.Level;
  * This class handles the dynamic loading and management of progression types.
  */
 public class ProgressionChainManager {
-    
+
     private final bRankup plugin;
     private final Map<String, ProgressionType> progressionTypes;
     private final Map<String, List<String>> progressionChains;
     private final List<String> progressionOrder;
-    
+
     public ProgressionChainManager(bRankup plugin) {
         this.plugin = plugin;
         this.progressionTypes = new HashMap<>();
         this.progressionChains = new HashMap<>();
         this.progressionOrder = new ArrayList<>();
     }
-    
+
     /**
      * Load all progression types from configuration
      */
@@ -41,6 +41,7 @@ public class ProgressionChainManager {
             return;
         }
 
+        // First pass: create all progression types
         for (String typeId : typesSection.getKeys(false)) {
             ConfigurationSection typeSection = typesSection.getConfigurationSection(typeId);
             if (typeSection == null) continue;
@@ -51,17 +52,15 @@ public class ProgressionChainManager {
             String command = typeSection.getString("command", typeId);
 
             if (configFile == null) {
-                plugin.getLogger().warning("Missing config-file for progression type: " + typeId);
+                plugin.getLogger().warning("Missing 'config-file' entry for progression type: " + typeId);
                 continue;
             }
 
-            // ** THIS IS THE FIX **
-            // We now correctly retrieve the config using its short name (typeId)
-            // instead of the full filename (configFile).
-            FileConfiguration config = plugin.getConfigManager().getConfig(typeId);
-
+            // Load the configuration file using the now-dynamic ConfigManager
+            FileConfiguration config = plugin.getConfigManager().getConfig(configFile);
             if (config == null) {
-                plugin.getLogger().warning("Could not load config for progression type: " + typeId + " from file " + configFile);
+                // This warning is now more descriptive.
+                plugin.getLogger().severe("Could not load or create config for progression type: " + typeId + ". Check file permissions and logs.");
                 continue;
             }
 
@@ -69,18 +68,22 @@ public class ProgressionChainManager {
                     displayName, command, config);
 
             progressionTypes.put(typeId, progressionType);
+            plugin.getLogger().info("Loaded progression type: " + typeId + " -> " + displayName);
         }
 
+        // Second pass: build dependency chains and validate
         buildProgressionChains();
         validateProgressionChains();
+
+        // Third pass: determine progression order
         determineProgressionOrder();
 
-        plugin.getLogger().info("Loaded " + progressionTypes.size() + " progression types.");
+        plugin.getLogger().info("Loaded " + progressionTypes.size() + " progression types");
         if (!progressionOrder.isEmpty()) {
             plugin.getLogger().info("Progression order: " + String.join(" -> ", progressionOrder));
         }
     }
-    
+
     /**
      * Build dependency chains for all progression types
      */
@@ -88,28 +91,28 @@ public class ProgressionChainManager {
         for (ProgressionType type : progressionTypes.values()) {
             List<String> chain = new ArrayList<>();
             String currentType = type.getId();
-            
+
             // Build the chain by following the 'follows' references
             while (currentType != null) {
                 chain.add(0, currentType); // Add to beginning to maintain order
                 ProgressionType current = progressionTypes.get(currentType);
                 currentType = current != null ? current.getFollows() : null;
             }
-            
+
             progressionChains.put(type.getId(), chain);
         }
     }
-    
+
     /**
      * Validate that all progression chains are valid
      */
     private void validateProgressionChains() {
         for (ProgressionType type : progressionTypes.values()) {
             if (type.getFollows() != null && !progressionTypes.containsKey(type.getFollows())) {
-                plugin.getLogger().warning("Progression type " + type.getId() + 
-                    " follows unknown type: " + type.getFollows());
+                plugin.getLogger().warning("Progression type " + type.getId() +
+                        " follows unknown type: " + type.getFollows());
             }
-            
+
             // Check for circular dependencies
             List<String> chain = progressionChains.get(type.getId());
             if (chain != null && chain.size() != new HashSet<>(chain).size()) {
@@ -117,7 +120,7 @@ public class ProgressionChainManager {
             }
         }
     }
-    
+
     /**
      * Determine the order of progression types based on dependencies
      */
@@ -125,21 +128,22 @@ public class ProgressionChainManager {
         // Use topological sort to determine order
         Map<String, Integer> inDegree = new HashMap<>();
         Map<String, List<String>> adjacencyList = new HashMap<>();
-        
+
         // Initialize
         for (String typeId : progressionTypes.keySet()) {
             inDegree.put(typeId, 0);
             adjacencyList.put(typeId, new ArrayList<>());
         }
-        
+
         // Build adjacency list and calculate in-degrees
         for (ProgressionType type : progressionTypes.values()) {
             if (type.getFollows() != null) {
-                adjacencyList.get(type.getFollows()).add(type.getId());
-                inDegree.put(type.getId(), inDegree.get(type.getId()) + 1);
+                // Ensure the parent exists in the adjacency list before adding
+                adjacencyList.computeIfAbsent(type.getFollows(), k -> new ArrayList<>()).add(type.getId());
+                inDegree.merge(type.getId(), 1, Integer::sum);
             }
         }
-        
+
         // Topological sort using Kahn's algorithm
         Queue<String> queue = new LinkedList<>();
         for (Map.Entry<String, Integer> entry : inDegree.entrySet()) {
@@ -147,54 +151,54 @@ public class ProgressionChainManager {
                 queue.offer(entry.getKey());
             }
         }
-        
+
         while (!queue.isEmpty()) {
             String current = queue.poll();
             progressionOrder.add(current);
-            
-            for (String neighbor : adjacencyList.get(current)) {
-                inDegree.put(neighbor, inDegree.get(neighbor) - 1);
+
+            for (String neighbor : adjacencyList.getOrDefault(current, Collections.emptyList())) {
+                inDegree.merge(neighbor, -1, Integer::sum);
                 if (inDegree.get(neighbor) == 0) {
                     queue.offer(neighbor);
                 }
             }
         }
-        
+
         // Check if we processed all types
         if (progressionOrder.size() != progressionTypes.size()) {
             plugin.getLogger().warning("Could not determine complete progression order. " +
-                "Some types may have circular dependencies.");
+                    "Check for circular dependencies or invalid 'follows' entries in config.yml.");
         }
     }
-    
+
     /**
      * Get a progression type by ID
      */
     public ProgressionType getProgressionType(String typeId) {
         return progressionTypes.get(typeId);
     }
-    
+
     /**
      * Get all progression types
      */
     public Collection<ProgressionType> getAllProgressionTypes() {
         return progressionTypes.values();
     }
-    
+
     /**
      * Get the progression chain for a specific type
      */
     public List<String> getProgressionChain(String typeId) {
         return progressionChains.getOrDefault(typeId, new ArrayList<>());
     }
-    
+
     /**
      * Get the progression order (from base to highest)
      */
     public List<String> getProgressionOrder() {
         return new ArrayList<>(progressionOrder);
     }
-    
+
     /**
      * Check if a player can progress to a specific type
      */
@@ -203,29 +207,29 @@ public class ProgressionChainManager {
         if (type == null || !type.isEnabled()) {
             return false;
         }
-        
+
         if (type.getFollows() == null) {
             return true; // Base progression type
         }
-        
+
         // Check if player has max level in the required progression type
         Long requiredLevel = playerLevels.get(type.getFollows());
         if (requiredLevel == null) {
             return false;
         }
-        
+
         ProgressionType requiredType = progressionTypes.get(type.getFollows());
         if (requiredType == null) {
             return false;
         }
-        
+
         if (type.requiresMaxLevel() && requiredLevel < requiredType.getLimit()) {
             return false;
         }
-        
+
         return true;
     }
-    
+
     /**
      * Get the next progression type in the chain
      */
@@ -234,11 +238,11 @@ public class ProgressionChainManager {
         if (currentIndex == -1 || currentIndex >= progressionOrder.size() - 1) {
             return null; // No next type
         }
-        
+
         String nextTypeId = progressionOrder.get(currentIndex + 1);
         return progressionTypes.get(nextTypeId);
     }
-    
+
     /**
      * Get the previous progression type in the chain
      */
@@ -247,11 +251,11 @@ public class ProgressionChainManager {
         if (currentIndex <= 0) {
             return null; // No previous type
         }
-        
+
         String previousTypeId = progressionOrder.get(currentIndex - 1);
         return progressionTypes.get(previousTypeId);
     }
-    
+
     /**
      * Get all progression types that follow a specific type
      */
@@ -264,7 +268,7 @@ public class ProgressionChainManager {
         }
         return following;
     }
-    
+
     /**
      * Check if a progression type is the base type (has no dependencies)
      */
@@ -272,14 +276,14 @@ public class ProgressionChainManager {
         ProgressionType type = progressionTypes.get(typeId);
         return type != null && type.getFollows() == null;
     }
-    
+
     /**
      * Check if a progression type is the highest type (nothing follows it)
      */
     public boolean isHighestProgressionType(String typeId) {
         return getFollowingProgressionTypes(typeId).isEmpty();
     }
-    
+
     /**
      * Get the base progression type (first in the chain)
      */
@@ -289,7 +293,7 @@ public class ProgressionChainManager {
         }
         return progressionTypes.get(progressionOrder.get(0));
     }
-    
+
     /**
      * Get the highest progression type (last in the chain)
      */
@@ -299,7 +303,7 @@ public class ProgressionChainManager {
         }
         return progressionTypes.get(progressionOrder.get(progressionOrder.size() - 1));
     }
-    
+
     /**
      * Reload a specific progression type
      */
@@ -308,29 +312,31 @@ public class ProgressionChainManager {
         if (type == null) {
             return false;
         }
-        
+
         // Reload the configuration file
+        plugin.getConfigManager().reloadConfig(type.getConfigFile());
         FileConfiguration config = plugin.getConfigManager().getConfig(type.getConfigFile());
+
         if (config == null) {
             return false;
         }
-        
+
         // Create new progression type with reloaded config
-        ProgressionType newType = new ProgressionType(type.getId(), type.getConfigFile(), 
-            type.getFollows(), type.getDisplayName(), type.getCommand(), config);
-        
+        ProgressionType newType = new ProgressionType(type.getId(), type.getConfigFile(),
+                type.getFollows(), type.getDisplayName(), type.getCommand(), config);
+
         // Update the type
         progressionTypes.put(typeId, newType);
-        
+
         // Rebuild chains and order
         buildProgressionChains();
         validateProgressionChains();
         determineProgressionOrder();
-        
+
         plugin.getLogger().info("Reloaded progression type: " + typeId);
         return true;
     }
-    
+
     /**
      * Get progression statistics
      */
@@ -338,13 +344,13 @@ public class ProgressionChainManager {
         Map<String, Object> stats = new HashMap<>();
         stats.put("total-types", progressionTypes.size());
         stats.put("enabled-types", progressionTypes.values().stream()
-            .filter(ProgressionType::isEnabled).count());
+                .filter(ProgressionType::isEnabled).count());
         stats.put("progression-order", progressionOrder);
-        stats.put("base-type", getBaseProgressionType() != null ? 
-            getBaseProgressionType().getId() : "none");
-        stats.put("highest-type", getHighestProgressionType() != null ? 
-            getHighestProgressionType().getId() : "none");
-        
+        stats.put("base-type", getBaseProgressionType() != null ?
+                getBaseProgressionType().getId() : "none");
+        stats.put("highest-type", getHighestProgressionType() != null ?
+                getHighestProgressionType().getId() : "none");
+
         return stats;
     }
-} 
+}

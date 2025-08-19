@@ -1,42 +1,42 @@
 # =================================================================
 # bRankup Messages using MiniMessage
-# https://docs.adventure.kyori.net/minimessage/
+#
+# Documentation: https://docs.adventure.kyori.net/minimessage/
 # =================================================================
 
 # --- Admin Messages ---
-admin-command-usage: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <yellow>Usage: /bra <reload|progression> ..."
+admin-command-usage: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <yellow>Usage: /bra reload | <type> <set|add|remove> <player> <amount>"
 admin-reload-success: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>Configuration files reloaded successfully."
+admin-generic-set: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You set <player>'s <type> to <aqua><amount></aqua>."
+admin-generic-add: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You added <aqua><amount></aqua> <type> levels to <player>."
+admin-generic-remove: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You removed <aqua><amount></aqua> <type> levels from <player>."
+admin-generic-notify-set: "<gold><b><type> Update</b></gold> <dark_gray>»</dark_gray> <gray>Your <type> has been set to <aqua><amount></aqua> by an admin."
+admin-generic-notify-change: "<gold><b><type> Update</b></gold> <dark_gray>»</dark_gray> <gray>Your <type> has been changed to <aqua><new_level></aqua> by an admin."
 
-# Generic Admin Progression Messages
-admin-progression-set: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You set <player>'s <type_name> to <aqua><amount></aqua>."
-admin-progression-add: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You added <aqua><amount></aqua> <type_name> levels to <player>."
-admin-progression-remove: "<gold><b>bRankup Admin</b></gold> <dark_gray>»</dark_gray> <green>You removed <aqua><amount></aqua> <type_name> levels from <player>."
-admin-progression-notify-set: "<gold><b>Progression Update</b></gold> <dark_gray>»</dark_gray> <gray>Your <type_name> has been set to <aqua><amount></aqua> by an admin."
-admin-progression-notify-change: "<gold><b>Progression Update</b></gold> <dark_gray>»</dark_gray> <gray>Your <type_name> has been changed to <aqua><new_level></aqua> by an admin."
-
-# --- System & Error Messages ---
-error-players-only: "<red>This command can only be run by a player."
-error-data-not-loaded: "<red>Your data is still loading, please try again in a moment."
-error-economy-withdraw-fail: "<red>An unexpected error occurred with the economy. Please contact an admin."
-error-economy-not-found: "<red>The required currency for <yellow><currency></yellow> is not available. Please contact an admin."
-error-no-permission: "<red>You do not have permission to use this command."
 error-player-not-found: "<red>Error: The player '<player>' has never played on this server."
 error-invalid-number: "<red>Error: '<amount>' is not a valid positive number."
 error-level-below-zero: "<red>Error: This action would result in a level below zero."
 error-level-above-max: "<red>Error: This action would result in a level above the maximum (<max_level>)."
-error-invalid-progression-type: "<red>Error: '<type>' is not a valid progression type."
+error-invalid-progression-type: "<red>Error: Invalid progression type specified."
+
+# --- System Messages ---
+error-players-only: "<red>This command can only be run by a player."
+error-data-not-loaded: "<red>Your data is still loading, please try again in a moment."
+error-economy-withdraw-fail: "<red>An unexpected error occurred with the economy. Please contact an admin."
+error-economy-not-found: "<red>The required currency '<yellow><currency></yellow>' is not available. Please contact an admin."
+error-no-permission: "<red>You do not have permission to use this command."
 error-generic: "<red>An unexpected error occurred. Please contact an administrator."
 
 # --- Generic Progression Messages ---
-progression-success: "<green><b>Success!</b> <gray>You have advanced to <type_display_name> <aqua><new_level></aqua>!"
-progression-fail-money: "<red><b>Failed!</b> <gray>You need <aqua><cost></aqua> <gray>to advance."
-progression-fail-max-level: "<red><b>Maxed!</b> <gray>You are already at the maximum <type_display_name> level."
-progression-fail-requirements: "<red><b>Failed!</b> <gray>You must reach the maximum <required_type_display_name> level first."
+progression-success: "<green><b>Success!</b> <gray>You have advanced to <type> <aqua><new_level></aqua>!"
+progression-fail-money: "<red><b>Failed!</b> <gray>You need <aqua><cost></aqua> to advance."
+progression-fail-max-level: "<red><b>Maxed!</b> <gray>You are already at the maximum <type> level."
+progression-fail-requirements: "<red><b>Failed!</b> <gray>You must reach the maximum <required_type> level first."
 
-# --- Generic Max Progression Messages ---
-max-progression-success: "<green><b>Success!</b> <gray>You purchased <aqua><levels_purchased></aqua> <type_display_name> levels for <gold><total_cost></gold> and are now level <aqua><new_level></aqua>!"
-max-progression-fail-cant-afford-next: "<red><b>Failed!</b> <gray>You cannot afford the next level."
+# --- Max Progression Messages ---
+max-progression-success: "<green><b>Success!</b> <gray>You purchased <aqua><levels_purchased></aqua> <type> levels for <gold><total_cost></gold> and are now <type> <aqua><new_level></aqua>!"
+max-progression-fail-cant-afford-next: "<red><b>Failed!</b> <gray>You cannot afford to advance to the next level."
 
-# --- Generic Auto Progression Messages ---
-auto-progression-enabled: "<green>Auto-<type_display_name> has been <bold>enabled</bold>."
-auto-progression-disabled: "<red>Auto-<type_display_name> has been <bold>disabled</bold>."
+# --- Auto Progression Messages ---
+auto-progression-enabled: "<green>Auto-<type> has been <bold>enabled</bold>."
+auto-progression-disabled: "<red>Auto-<type> has been <bold>disabled</bold>."

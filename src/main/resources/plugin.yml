@@ -16,6 +16,9 @@ permissions:
   brankup.admin.progression:
     description: Allows access to progression management commands.
     default: op
+  # Permissions for each progression type will now be handled within the command itself
+  # Example: brankup.rankup.base, brankup.rankup.max, brankup.rankup.auto
+  # These are checked dynamically in the command handler.
 
 commands:
   brankupadmin:
